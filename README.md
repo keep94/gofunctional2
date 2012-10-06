@@ -45,15 +45,15 @@ To get the 4th page of 25 people do:
 	  s = functional.Slice(s, 3 * 25, 4 * 25)
           var person Person
           err := s.Next(&person)
-	  for ; err == nil; err = s.Next(&person) {
-	    // Display person here
-	  }
+          for ; err == nil; err = s.Next(&person) {
+            // Display person here
+          }
           if err != functional.Done {
             // Do error handling here
 
             s.Close()
           }
-	}
+        }
 
 Like python iterators and generators, Stream types are lazily evaluated, so
 the above code will read only the first 100 names no matter how many people
