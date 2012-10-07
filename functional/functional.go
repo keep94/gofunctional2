@@ -233,7 +233,6 @@ func (s *sliceStream) Next(ptr interface{}) error {
     return Done
   }
   if s.end >= 0 && s.start >= s.end {
-    s.done = true
     return finish(s.Close())
   }
   for s.end < 0 || s.index < s.end {
@@ -250,11 +249,11 @@ func (s *sliceStream) Next(ptr interface{}) error {
       return nil
     }
   }
-  s.done = true
   return finish(s.Close())
 }
 
 func (s *sliceStream) Close() error {
+  s.done = true
   return closeUnder(&s.stream)
 }
 
@@ -268,7 +267,6 @@ func (r *rowStream) Next(ptr interface{}) error {
     return Done
   }
   if !r.rows.Next() {
-    r.done = true
     return finish(r.Close())
   }
   ptrs := ptr.(Tuple).Ptrs()
@@ -276,6 +274,7 @@ func (r *rowStream) Next(ptr interface{}) error {
 }
 
 func (r *rowStream) Close() error {
+  r.done = true
   if r.rows == nil {
     return nil
   }

@@ -132,9 +132,7 @@ func TestSliceWithEnd(t *testing.T) {
   if err != Done {
     t.Errorf("Expected Done got %v", err)
   }
-  if !s.closeCalled {
-    t.Error("Expected Close on underlying stream of Slice.")
-  }
+  verifyClosed(t, s)
 }
 
 func TestSliceWithEnd2(t *testing.T) {
@@ -146,9 +144,7 @@ func TestSliceWithEnd2(t *testing.T) {
   if err != Done {
     t.Errorf("Expected Done got %v", err)
   }
-  if !s.closeCalled {
-    t.Error("Expected Close on underlying stream of Slice.")
-  }
+  verifyClosed(t, s)
 }
 
 func TestZeroSlice(t *testing.T) {
@@ -160,9 +156,7 @@ func TestZeroSlice(t *testing.T) {
   if err != Done {
     t.Errorf("Expected Done got %v", err)
   }
-  if !s.closeCalled {
-    t.Error("Expected Close on underlying stream of Slice.")
-  }
+  verifyClosed(t, s)
 }
 
 func TestSliceStartTooBig(t *testing.T) {
@@ -196,34 +190,21 @@ func TestSliceStartBiggerThanEnd(t *testing.T) {
   if err != Done {
     t.Errorf("Expected Done got %v", err)
   }
-  if !s.closeCalled {
-    t.Error("Expected Close on underlying stream of Slice.")
-  }
+  verifyClosed(t, s)
 }
 
-func TestSliceFailureOnAutoClose(t *testing.T) {
+func TestSliceAutoClose(t *testing.T) {
   s := &detectClose{Stream: xrange(0, 20), closeError: closeError}
-  slice := Slice(s, 7, 10)
-  results, err := toIntArray(slice)
-  if output := fmt.Sprintf("%v", results); output != "[7 8 9]"  {
-    t.Errorf("Expected [7 8 9] got %v", output)
-  }
-  if err != closeError {
-    t.Errorf("Expected closeError got %v", err)
-  }
-  // Close stream after examining error
-  slice.Close()
+  verifyCloseOnDone(t, Slice(s, 7, 10), new(int), closeError, s)
+  s = &detectClose{Stream: xrange(0, 20)}
+  verifyCloseOnDone(t, Slice(s, 7, 10), new(int), Done, s)
 }
-
-func TestSliceClose(t *testing.T) {
+  
+func TestSliceManualClose(t *testing.T) {
   s := &detectClose{Stream: xrange(0, 20), closeError: closeError}
-  slice := Slice(s, 7, 10)
-  if output := slice.Close(); output != closeError {
-    t.Errorf("Expected closeError on Close got %v", output)
-  }
-  if !s.closeCalled {
-    t.Error("Expected Close on underlying stream of Slice.")
-  }
+  verifyClose(t, Slice(s, 7, 10), new(int), closeError, s)
+  s = &detectClose{Stream: xrange(0, 20)}
+  verifyClose(t, Slice(s, 7, 10), new(int), nil, s)
 }
 
 func TestCountFrom(t *testing.T) {
@@ -247,39 +228,18 @@ func TestReadRows(t *testing.T) {
   }
 } 
 
-func TestReadRowsSuccessOnAutoClose(t *testing.T) {
+func TestReadRowsAutoClose(t *testing.T) {
   rows := &rowsDetectClose{Rows: &fakeRows{}}
-  results, err := toIntAndStringArray(ReadRows(rows))
-  if output := fmt.Sprintf("%v", results); output != "[]"  {
-    t.Errorf("Expected [] got %v", output)
-  }
-  if err != Done {
-    t.Errorf("Expected Done got %v", err)
-  }
-  if !rows.closeCalled {
-    t.Error("Expected Close on underlying rows.")
-  }
-}
-  
-func TestReadRowsFailureOnAutoClose(t *testing.T) {
-  rows := &rowsDetectClose{Rows: &fakeRows{}, closeError: closeError}
-  s := ReadRows(rows)
-  results, err := toIntAndStringArray(s)
-  if output := fmt.Sprintf("%v", results); output != "[]"  {
-    t.Errorf("Expected [] got %v", output)
-  }
-  if err != closeError {
-    t.Errorf("Expected closeError got %v", err)
-  }
-  s.Close()
+  verifyCloseOnDone(t, ReadRows(rows), new(intAndString), Done, rows)
+  rows = &rowsDetectClose{Rows: &fakeRows{}, closeError: closeError}
+  verifyCloseOnDone(t, ReadRows(rows), new(intAndString), closeError, rows)
 }
 
-func TestReadRowsClose(t *testing.T) {
-  rows := &rowsDetectClose{Rows: &fakeRows{}, closeError: closeError}
-  s := ReadRows(rows)
-  if output := s.Close(); output != closeError {
-    t.Errorf("Expected closeError got %v", output)
-  }
+func TestReadRowsManualClose(t *testing.T) {
+  rows := &rowsDetectClose{Rows: &fakeRows{}}
+  verifyClose(t, ReadRows(rows), new(intAndString), nil, rows)
+  rows = &rowsDetectClose{Rows: &fakeRows{}, closeError: closeError}
+  verifyClose(t, ReadRows(rows), new(intAndString), closeError, rows)
 }
   
 func TestReadRowsEmpty(t *testing.T) {
@@ -397,6 +357,44 @@ func TestCompose(t *testing.T) {
   }
 }  
 
+func verifyCloseOnDone(t *testing.T, s Stream, ptr interface{}, expected error, closed ...closeChecker) {
+  if err := consume(s, ptr); err != expected {
+    t.Errorf("Expected %v got %v", expected, err)
+  }
+  verifyClosed(t, closed...)
+}
+
+func verifyClose(t *testing.T, s Stream, ptr interface{}, expected error, closed ...closeChecker) {
+  if err := s.Close(); err != expected {
+    t.Errorf("Expected %v got Tv", expected, err)
+  }
+  verifyClosed(t, closed...)
+  if output := s.Next(ptr); output != Done {
+    t.Errorf("Expect Next to return Done after Close, got %v", output)
+  }
+}
+
+func verifyClosed(t *testing.T, closed ...closeChecker) {
+  for i := range closed {
+    if !closed[i].isClosed() {
+      t.Error("Expected all underlying streams closed.")
+      break
+    }
+  }
+}
+
+func consume(s Stream, ptr interface{}) error {
+  err := s.Next(ptr)
+  for err == nil {
+    err = s.Next(ptr)
+  }
+  return err
+}
+
+type closeChecker interface {
+  isClosed() bool
+}
+
 type intAndString struct {
   id int
   name string
@@ -452,6 +450,10 @@ func (s *detectClose) Close() error {
   return s.closeError
 }
 
+func (s *detectClose) isClosed() bool {
+  return s.closeCalled
+}
+
 type rowsDetectClose struct {
   Rows
   closeError error
@@ -461,6 +463,10 @@ type rowsDetectClose struct {
 func (r *rowsDetectClose) Close() error {
   r.closeCalled = true
   return r.closeError
+}
+
+func (r *rowsDetectClose) isClosed() bool {
+  return r.closeCalled
 }
 
 func xrange(start, end int) Stream {
