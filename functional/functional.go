@@ -2,6 +2,7 @@
 package functional
 
 import (
+  "bufio"
   "errors"
   "io"
 )
@@ -18,13 +19,16 @@ type Stream interface {
   // If Next returns Done, then the end of the Stream has been reached,
   // and the value ptr points to is unspecified.
   // If Next returns some other error, then the caller should close the
-  // Stream with Close.  ptr must be a *T
+  // Stream with Close.  ptr must be a *T.
+  // Once Next returns Done, it should continue to return Done, and
+  // Close should return nil.
   Next(ptr interface{}) error
   // Close indicates that the caller is finished with this Stream. If Caller
   // consumes all the values in this Stream, then it need not call Close. But
   // if Caller chooses not to consume the Stream entirely, it should call
-  // Close on it. Caller should also call Close if Next returns an error other
-  // than Done.
+  // Close. Caller should also call Close if Next returns an error other
+  // than Done. Once Close returns nil, it should continue to return nil.
+  // The result of calling Next after Close is undefined.
   io.Closer
 }
 
@@ -69,6 +73,11 @@ type Rows interface {
   Scan(args ...interface{}) error
 }
 
+// NilStream returns a Stream that emits no values.
+func NilStream() Stream {
+  return nilStream{}
+}
+
 // Map applies f, which maps a type T value to a type U value, to a Stream
 // of T producing a new Stream of U. If s is
 // (x1, x2, x3, ...), Map returns the Stream (f(x1), f(x2), f(x3), ...).
@@ -96,13 +105,13 @@ func Filter(f Filterer, s Stream) Stream {
 }
 
 // Count returns an infinite Stream of int which emits all values beginning
-// at 0. Calling Close on returned Stream is a no-op.
+// at 0.
 func Count() Stream {
   return &count{0, 1}
 }
 
 // CountFrom returns an infinite Stream of int emitting values beginning at
-// start and increasing by step. Calling Closeon returned Stream is a no-op.
+// start and increasing by step.
 func CountFrom(start, step int) Stream {
   return &count{start, step}
 }
@@ -113,14 +122,26 @@ func CountFrom(start, step int) Stream {
 // closes s. When end of returned Stream is reached, it closes s if it has not
 // consumed s returning any Close error through Next.
 func Slice(s Stream, start int, end int) Stream {
-  return &sliceStream{stream: s, start: start, end: end}
+  return &sliceStream{Stream: s, start: start, end: end}
 }
 
 // ReadRows returns the rows in a database table as a Stream of Tuple. When
-// end of returned Stream is reached, it closes r if r implements io.Closer.
-// Calling Close on returned stream closes r if r implements io.Closer.
+// end of returned Stream is reached, it closes r if r implements io.Closer
+// propagating any Close error through Next. Calling Close on returned
+// stream closes r if r implements io.Closer.
 func ReadRows(r Rows) Stream {
-  return &rowStream{rows: r}
+  c, _ := r.(io.Closer)
+  return &rowStream{rows: r, closer: c}
+}
+
+// ReadLines returns the lines of text in r separated by either "\n" or "\r\n"
+// as a Stream of string. The emitted string types do not contain the
+// end of line characters. When end of returned Stream is reached, it closes
+// r if r implements io.Closer propagating any Close error through Next.
+// Calling Close on returned Stream closes r if r implements io.Closer.
+func ReadLines(r io.Reader) Stream {
+  c, _ := r.(io.Closer)
+  return &lineStream{bufio: bufio.NewReader(r), closer: c}
 }
 
 // Any returns a Filterer that returns true if any of the
@@ -205,6 +226,17 @@ func (s *mapStream) Next(ptr interface{}) error {
   return err
 }
 
+type nilStream struct {
+}
+
+func (s nilStream) Next(ptr interface{}) error {
+  return Done
+}
+
+func (s nilStream) Close() error {
+  return nil
+}
+
 type filterStream struct {
   filterer Filterer
   Stream
@@ -221,7 +253,7 @@ func (s *filterStream) Next(ptr interface{}) error {
 }
 
 type sliceStream struct {
-  stream Stream
+  Stream
   start int
   end int
   index int
@@ -232,11 +264,8 @@ func (s *sliceStream) Next(ptr interface{}) error {
   if s.done {
     return Done
   }
-  if s.end >= 0 && s.start >= s.end {
-    return finish(s.Close())
-  }
   for s.end < 0 || s.index < s.end {
-    err := s.stream.Next(ptr)
+    err := s.Stream.Next(ptr)
     if err == Done {
       s.done = true
       return Done
@@ -249,46 +278,81 @@ func (s *sliceStream) Next(ptr interface{}) error {
       return nil
     }
   }
-  return finish(s.Close())
-}
-
-func (s *sliceStream) Close() error {
   s.done = true
-  return closeUnder(&s.stream)
+  return finish(s.Close())
 }
 
 type rowStream struct {
   rows Rows
+  closer io.Closer
   done bool
 }
 
-func (r *rowStream) Next(ptr interface{}) error {
-  if r.done {
+func (s *rowStream) Next(ptr interface{}) error {
+  if s.done {
     return Done
   }
-  if !r.rows.Next() {
-    return finish(r.Close())
+  if !s.rows.Next() {
+    s.done = true
+    return finish(s.Close())
   }
   ptrs := ptr.(Tuple).Ptrs()
-  return r.rows.Scan(ptrs...)
+  return s.rows.Scan(ptrs...)
 }
 
-func (r *rowStream) Close() error {
-  r.done = true
-  if r.rows == nil {
-    return nil
-  }
-  var result error
-  c, ok := r.rows.(io.Closer)
-  if ok {
-    result = c.Close()
-  }
-  if result == nil {
-    r.rows = nil
-  }
-  return result
+func (s *rowStream) Close() error {
+  return closeUnder(&s.closer)
 }
   
+type lineStream struct {
+  bufio *bufio.Reader
+  closer io.Closer
+  done bool
+}
+
+func (s *lineStream) Next(ptr interface{}) error {
+  if s.done {
+    return Done
+  }
+  p := ptr.(*string)
+  line, isPrefix, err := s.bufio.ReadLine()
+  if err == io.EOF {
+    s.done = true
+    return finish(s.Close())
+  }
+  if err != nil {
+    return err
+  }
+  if !isPrefix {
+    *p = string(line)
+    return nil
+  }
+  *p, err = s.readRestOfLine(line)
+  return err
+}
+
+func (s *lineStream) readRestOfLine(line []byte) (string, error) {
+  lines := [][]byte{copyBytes(line)}
+  for {
+    l, isPrefix, err := s.bufio.ReadLine()
+    if err == io.EOF {
+      break
+    }
+    if err != nil {
+      return "", err
+    }
+    lines = append(lines, copyBytes(l))
+    if !isPrefix {
+      break
+    }
+  }
+  return string(byteFlatten(lines)), nil
+}
+
+func (s *lineStream) Close() error {
+  return closeUnder(&s.closer)
+}
+
 type funcFilterer func(ptr interface{}) bool
 
 func (f funcFilterer) Filter(ptr interface{}) bool {
@@ -435,7 +499,7 @@ func finish(e error) error {
   return e
 }
 
-func closeUnder(ptr *Stream) error {
+func closeUnder(ptr *io.Closer) error {
   if *ptr == nil {
     return nil
   }
@@ -445,3 +509,23 @@ func closeUnder(ptr *Stream) error {
   }
   return result
 }
+
+func copyBytes(b []byte) []byte {
+  result := make([]byte, len(b))
+  copy(result, b)
+  return result
+}
+
+func byteFlatten(b [][]byte) []byte {
+  var l int
+  for i := range b {
+    l += len(b[i])
+  }
+  result := make([]byte, l)
+  n := 0
+  for i := range b {
+    n += copy(result[n:], b[i])
+  }
+  return result
+}
+
