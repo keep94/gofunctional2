@@ -5,6 +5,7 @@ import (
   "bufio"
   "errors"
   "io"
+  "reflect"
 )
 
 // Done indicates that the end of a Stream has been reached
@@ -62,6 +63,11 @@ type Mapper interface {
 
 // Creater of T creates a new, pre-initialized, T and returns a pointer to it.
 type Creater func() interface {}
+
+// Copier of T copies the value at src to the value at dest. This type is
+// often needed when values of type T need to be pre-initialized. src and
+// dest are of type *T and both point to pre-initialized T.
+type Copier func(src, dest interface{})
 
 // Rows represents rows in a database table. Most database API already have
 // a type that implements this interface
@@ -527,5 +533,15 @@ func byteFlatten(b [][]byte) []byte {
     n += copy(result[n:], b[i])
   }
   return result
+}
+
+func assignCopier(src, dest interface{}) {
+  srcP := reflect.ValueOf(src)
+  assignFromPtr(srcP, dest)
+}
+
+func assignFromPtr(srcP reflect.Value, dest interface{}) {
+  destP := reflect.ValueOf(dest)
+  reflect.Indirect(destP).Set(reflect.Indirect(srcP))
 }
 

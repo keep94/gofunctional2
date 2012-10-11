@@ -44,12 +44,12 @@ func (s *regularGenerator) Return(err error) {
 }
 
 func (s *regularGenerator) Next(ptr interface{}) error {
-  if s.emitterStream.isClosed() {
+  if s.isClosed() {
     return Done
   }
   result := s.emitterStream.Next(ptr)
   if result == Done {
-    s.emitterStream.close()
+    s.close()
   }
   return result
 }
