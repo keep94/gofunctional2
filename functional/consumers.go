@@ -26,14 +26,14 @@ func MultiConsume(s Stream, ptr interface{}, copier Copier, consumers ...Consume
   if copier == nil {
     copier = assignCopier
   }
-  streams := make([]*splitStream, len(consumers))
+  streams := make([]splitStream, len(consumers))
   for i := range streams {
-    streams[i] = &splitStream{emitterStream{ptrCh: make(chan interface{}), errCh: make(chan error)}}
+    streams[i] = splitStream{emitterStream{ptrCh: make(chan interface{}), errCh: make(chan error)}}
     go func(s *splitStream, c Consumer) {
       s.startStream()
       c.Consume(s)
       s.endStream()
-    }(streams[i], consumers[i])
+    }(&streams[i], consumers[i])
   }
   var err error
   for asyncReturn(streams, err) {
@@ -72,7 +72,7 @@ func (s *splitStream) Close() error {
   return nil
 }
 
-func asyncReturn(streams []*splitStream, err error) bool {
+func asyncReturn(streams []splitStream, err error) bool {
   for i := range streams {
     if !streams[i].isClosed() {
       streams[i].errCh <- err
