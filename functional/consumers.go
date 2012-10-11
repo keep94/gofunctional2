@@ -27,30 +27,21 @@ func MultiConsume(s Stream, ptr interface{}, copier Copier, consumers ...Consume
     copier = assignCopier
   }
   streams := make([]*splitStream, len(consumers))
-  stillConsuming := false
   for i := range streams {
     streams[i] = &splitStream{emitterStream{ptrCh: make(chan interface{}), errCh: make(chan error)}}
-    go func(idx int) {
-      streams[idx].startStream()
-      consumers[idx].Consume(streams[idx])
-      streams[idx].endStream()
-    }(i)
-    streams[i].Return(nil)
-    if !streams[i].isClosed() {
-      stillConsuming = true
-    }
+    go func(s *splitStream, c Consumer) {
+      s.startStream()
+      c.Consume(s)
+      s.endStream()
+    }(streams[i], consumers[i])
   }
-  for stillConsuming {
-    err := s.Next(ptr)
-    stillConsuming = false
+  var err error
+  for asyncReturn(streams, err) {
+    err = s.Next(ptr)
     for i := range streams {
       if !streams[i].isClosed() {
         p := streams[i].EmitPtr()
         copier(ptr, p)
-        streams[i].Return(err)
-        if !streams[i].isClosed() {
-          stillConsuming = true
-        }
       }
     }
   }
@@ -81,12 +72,22 @@ func (s *splitStream) Close() error {
   return nil
 }
 
-func (s *splitStream) Return(err error) {
-  if s.isClosed() {
-    return
+func asyncReturn(streams []*splitStream, err error) bool {
+  for i := range streams {
+    if !streams[i].isClosed() {
+      streams[i].errCh <- err
+    }
   }
-  s.emitterStream.Return(err)
-  if s.EmitPtr() == nil {
-    s.close()
+  result := false
+  for i := range streams {
+    if !streams[i].isClosed() {
+      streams[i].ptr = <-streams[i].ptrCh
+      if streams[i].ptr == nil {
+        streams[i].close()
+      } else {
+        result = true
+      }
+    }
   }
+  return result
 }
