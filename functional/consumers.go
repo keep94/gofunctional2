@@ -30,9 +30,9 @@ func MultiConsume(s Stream, ptr interface{}, copier Copier, consumers ...Consume
   for i := range streams {
     streams[i] = splitStream{emitterStream{ptrCh: make(chan interface{}), errCh: make(chan error)}}
     go func(s *splitStream, c Consumer) {
+      defer s.endStream()
       s.startStream()
       c.Consume(s)
-      s.endStream()
     }(&streams[i], consumers[i])
   }
   var err error

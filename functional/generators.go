@@ -25,9 +25,9 @@ type Emitter interface {
 func NewGenerator(f func(e Emitter)) Stream {
   result := &regularGenerator{emitterStream{ptrCh: make(chan interface{}), errCh: make(chan error)}}
   go func() {
+    defer result.endEmitter()
     result.startEmitter()
     f(result)
-    result.endEmitter()
   }()
   return result
 }
