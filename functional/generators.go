@@ -32,6 +32,20 @@ func NewGenerator(f func(e Emitter)) Stream {
   return result
 }
 
+// EmitAll emits all of Stream s to Emitter e. On success, returns nil.
+// If the Stream for e becomes closed, EmitAll closes s and returns Done.
+// If there was an error closing s, it returns that error.
+func EmitAll(s Stream, e Emitter) error {
+  for ptr := e.EmitPtr(); ptr != nil; ptr = e.EmitPtr() {
+    err := s.Next(ptr)
+    if err == Done {
+      return nil
+    }
+    e.Return(err)
+  }
+  return finish(s.Close())
+}
+
 type regularGenerator struct {
   emitterStream
 }
