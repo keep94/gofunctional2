@@ -311,7 +311,107 @@ func TestNilStream(t *testing.T) {
   _, err := toIntArray(stream)
   verifyDone(t, stream, new(int), err)
 }
-  
+
+func TestConcat(t *testing.T) {
+  stream := Concat(xrange(5, 8), NilStream(), xrange(9, 11))
+  results, err := toIntArray(stream)
+  if output := fmt.Sprintf("%v", results); output != "[5 6 7 9 10]"  {
+    t.Errorf("Expected [5 6 7 9 10] got %v", output)
+  }
+  verifyDone(t, stream, new(int), err)
+}
+
+func TestConcat2(t *testing.T) {
+  stream := Concat(NilStream(), xrange(7, 9), NilStream())
+  results, err := toIntArray(stream)
+  if output := fmt.Sprintf("%v", results); output != "[7 8]"  {
+    t.Errorf("Expected [7 8] got %v", output)
+  }
+  verifyDone(t, stream, new(int), err)
+}
+
+func TestConcatEmpty(t *testing.T) {
+  stream := Concat()
+  results, err := toIntArray(stream)
+  if output := fmt.Sprintf("%v", results); output != "[]"  {
+    t.Errorf("Expected [] got %v", output)
+  }
+  verifyDone(t, stream, new(int), err)
+}
+
+func TestConcatAllEmptyStreams(t *testing.T) {
+  stream := Concat(NilStream(), NilStream())
+  results, err := toIntArray(stream)
+  if output := fmt.Sprintf("%v", results); output != "[]"  {
+    t.Errorf("Expected [] got %v", output)
+  }
+  verifyDone(t, stream, new(int), err)
+}
+
+func TestConcatCloseEmpty(t *testing.T) {
+  stream := Concat()
+  if output := stream.Close(); output != nil {
+    t.Errorf("Expected nil on Close, got %v", output)
+  }
+}
+
+func TestConcatCloseNormal(t *testing.T) {
+  x := streamCloseChecker{NilStream(), &simpleCloseChecker{}}
+  y := streamCloseChecker{NilStream(), &simpleCloseChecker{}}
+  stream := Concat(x, y)
+  if output := stream.Close(); output != nil {
+    t.Errorf("Expected nil on Close, got %v", output)
+  }
+  verifyClosed(t, x)
+  verifyClosed(t, y)
+}
+
+func TestConcatCloseError(t *testing.T) {
+  x := streamCloseChecker{NilStream(), &simpleCloseChecker{closeError: closeError}}
+  y := streamCloseChecker{NilStream(), &simpleCloseChecker{}}
+  stream := Concat(x, y)
+  if output := stream.Close(); output != closeError {
+    t.Errorf("Expected closeError on Close, got %v", output)
+  }
+  verifyClosed(t, x)
+  verifyClosed(t, y)
+}
+
+func TestDeferred(t *testing.T) {
+  stream := Deferred(func() Stream { return xrange(10, 12) })
+  results, err := toIntArray(stream)
+  if output := fmt.Sprintf("%v", results); output != "[10 11]"  {
+    t.Errorf("Expected [10 11] got %v", output)
+  }
+  verifyDone(t, stream, new(int), err)
+}
+
+func TestDeferredCloseNotStarted(t *testing.T) {
+  s := streamCloseChecker{NilStream(), &simpleCloseChecker{closeError: closeError}}
+  stream := Deferred(func() Stream { return s })
+  if output := stream.Close(); output != nil {
+    t.Errorf("Expected nil on Close, got %v", output)
+  }
+}
+
+func TestDeferredCloseError(t *testing.T) {
+  s := streamCloseChecker{NilStream(), &simpleCloseChecker{closeError: closeError}}
+  stream := Deferred(func() Stream { return s })
+  stream.Next(new(int))
+  if output := stream.Close(); output != closeError {
+    t.Errorf("Expected closeError on Close, got %v", output)
+  }
+}
+
+func TestDeferredClose(t *testing.T) {
+  s := streamCloseChecker{NilStream(), &simpleCloseChecker{}}
+  stream := Deferred(func() Stream { return s })
+  stream.Next(new(int))
+  if output := stream.Close(); output != nil {
+    t.Errorf("Expected nil on Close, got %v", output)
+  }
+}
+
 func TestAny(t *testing.T) {
   a := Any(equal(1), equal(2))
   b := Any()

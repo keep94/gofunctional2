@@ -9,7 +9,10 @@ import (
 )
 
 // Done indicates that the end of a Stream has been reached
-var Done = errors.New("functional: End of Stream reached.")
+var (
+  Done = errors.New("functional: End of Stream reached.")
+  nilS = nilStream{}
+)
 
 // Stream is a sequence emitted values.
 // Each call to Next() emits the next value in the stream.
@@ -81,7 +84,7 @@ type Rows interface {
 
 // NilStream returns a Stream that emits no values.
 func NilStream() Stream {
-  return nilStream{}
+  return nilS;
 }
 
 // Map applies f, which maps a type T value to a type U value, to a Stream
@@ -148,6 +151,22 @@ func ReadRows(r Rows) Stream {
 func ReadLines(r io.Reader) Stream {
   c, _ := r.(io.Closer)
   return &lineStream{bufio: bufio.NewReader(r), closer: c}
+}
+
+// Deferred returns a Stream that emits the values from the Stream f returns.
+// f is not called until the first time Next is called on the returned stream.
+// Calling Close on returned Stream closes the Stream f creates or does nothing
+// if f not called.
+func Deferred(f func() Stream) Stream {
+  return &deferredStream{f: f}
+}
+
+// Concat concatenates multiple Streams into one.
+// If x = (x1, x2, ...) and y = (y1, y2, ...) then
+// Concat(x, y) = (x1, x2, ..., y1, y2, ...).
+// Calling Close on returned Stream closes all underlying streams.
+func Concat(s ...Stream) Stream {
+  return &concatStream{s: s}
 }
 
 // Any returns a Filterer that returns true if any of the
@@ -357,6 +376,52 @@ func (s *lineStream) readRestOfLine(line []byte) (string, error) {
 
 func (s *lineStream) Close() error {
   return closeUnder(&s.closer)
+}
+
+type deferredStream struct {
+  f func() Stream
+  s Stream
+}
+
+func (d *deferredStream) Next(ptr interface{}) error {
+  if d.s == nil {
+    d.s = d.f()
+  }
+  return d.s.Next(ptr)
+}
+
+func (d *deferredStream) Close() error {
+  if d.s != nil {
+    return d.s.Close()
+  }
+  return nil
+}
+
+type concatStream struct {
+  s []Stream
+  idx int
+}
+
+func (c *concatStream) Next(ptr interface{}) error {
+  for ;c.idx < len(c.s); c.idx++ {
+    err := c.s[c.idx].Next(ptr)
+    if err == Done {
+      continue
+    }
+    return err
+  }
+  return Done
+}
+
+func (c *concatStream) Close() error {
+  var result error = nil
+  for i := range c.s {
+    err := c.s[i].Close()
+    if result == nil {
+      result = err
+    }
+  }
+  return result
 }
 
 type funcFilterer func(ptr interface{}) bool
