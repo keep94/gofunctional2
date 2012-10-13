@@ -7,6 +7,8 @@ import (
   "github.com/keep94/gofunctional2/functional"
 )
 
+// Power returns a Stream that emits the power set of items. Next of 
+// returned Stream emits to an []int that has same length as items.
 func Power(items []int) functional.Stream {
   return functional.NewGenerator(func(e functional.Emitter) {
     len := len(items)

@@ -1,10 +1,10 @@
-package main
-
 // This example is just like power, but does not make recursive calls to
 // functional.NewGenerator. functional.NewGenerator uses channels to simulate
 // the behavior of python generators. While channels are cheap in go, they
 // are not free. As a result, this example runs 10X faster than the power
 // example.
+package main
+
 import (
   "fmt"
   "github.com/keep94/gofunctional2/functional"
@@ -12,6 +12,8 @@ import (
 
 var ess = emptySetStream{}
 
+// Power returns a Stream that emits the power set of items. Next of 
+// returned Stream emits to an []int that has same length as items.
 func Power(items []int) functional.Stream {
   len := len(items)
   if len == 0 {
