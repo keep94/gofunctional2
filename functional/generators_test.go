@@ -70,3 +70,31 @@ func TestEmptyGenerator(t *testing.T) {
   }
   verifyDone(t, stream, new(int), err)
 }
+
+func TestEmitAllClosed(t *testing.T) {
+  s := Count()
+  e := fakeEmitter{nil}
+  if output := EmitAll(s, e); output != Done {
+    t.Errorf("Expected Done, got %v", output)
+  }
+}
+
+func TestEmitAllSuccess(t *testing.T) {
+  s := xrange(0, 10)
+  e := fakeEmitter{new(int)}
+  if output := EmitAll(s, e); output != nil {
+    t.Errorf("Expected nil, got %v", output)
+  }
+}
+
+type fakeEmitter struct {
+  ptr interface{}
+}
+
+func (e fakeEmitter) EmitPtr() interface{} {
+  return e.ptr
+}
+
+func (e fakeEmitter) Return(err error) {
+}
+
