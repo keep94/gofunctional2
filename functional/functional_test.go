@@ -362,8 +362,7 @@ func TestConcatCloseNormal(t *testing.T) {
   if output := stream.Close(); output != nil {
     t.Errorf("Expected nil on Close, got %v", output)
   }
-  verifyClosed(t, x)
-  verifyClosed(t, y)
+  verifyClosed(t, x, y)
 }
 
 func TestConcatCloseError(t *testing.T) {
@@ -373,8 +372,7 @@ func TestConcatCloseError(t *testing.T) {
   if output := stream.Close(); output != closeError {
     t.Errorf("Expected closeError on Close, got %v", output)
   }
-  verifyClosed(t, x)
-  verifyClosed(t, y)
+  verifyClosed(t, x, y)
 }
 
 func TestDeferred(t *testing.T) {
