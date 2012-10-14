@@ -249,6 +249,7 @@ func TestReadRowsNextPropagateClose(t *testing.T) {
 func TestReadRowsManualClose(t *testing.T) {
   rows := rowsCloseChecker{&fakeRows{}, &noDupCloseChecker{}}
   verifyDupClose(t, ReadRows(rows))
+  verifyClosed(t, rows)
 }
   
 func TestReadLines(t *testing.T) {
@@ -304,6 +305,7 @@ func TestReadLinesNextPropagateClose(t *testing.T) {
 func TestReadLinesManualClose(t *testing.T) {
   reader := readerCloseChecker{strings.NewReader(""), &noDupCloseChecker{}}
   verifyDupClose(t, ReadLines(reader))
+  verifyClosed(t, reader)
 }
 
 func TestNilStream(t *testing.T) {
@@ -393,7 +395,7 @@ func TestDeferredCloseNotStarted(t *testing.T) {
 }
 
 func TestDeferredCloseError(t *testing.T) {
-  s := streamCloseChecker{NilStream(), &simpleCloseChecker{closeError: closeError}}
+  s := streamCloseChecker{xrange(2, 5), &simpleCloseChecker{closeError: closeError}}
   stream := Deferred(func() Stream { return s })
   stream.Next(new(int))
   if output := stream.Close(); output != closeError {
@@ -402,12 +404,13 @@ func TestDeferredCloseError(t *testing.T) {
 }
 
 func TestDeferredClose(t *testing.T) {
-  s := streamCloseChecker{NilStream(), &simpleCloseChecker{}}
+  s := streamCloseChecker{xrange(2, 5), &simpleCloseChecker{}}
   stream := Deferred(func() Stream { return s })
   stream.Next(new(int))
   if output := stream.Close(); output != nil {
     t.Errorf("Expected nil on Close, got %v", output)
   }
+  verifyClosed(t, s)
 }
 
 func TestAny(t *testing.T) {

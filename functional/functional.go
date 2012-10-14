@@ -381,13 +381,22 @@ func (s *lineStream) Close() error {
 type deferredStream struct {
   f func() Stream
   s Stream
+  done bool
 }
 
 func (d *deferredStream) Next(ptr interface{}) error {
+  if d.done {
+    return Done
+  }
   if d.s == nil {
     d.s = d.f()
   }
-  return d.s.Next(ptr)
+  err := d.s.Next(ptr)
+  if err == Done {
+    d.done = true
+    d.s = nil
+  }
+  return err
 }
 
 func (d *deferredStream) Close() error {
