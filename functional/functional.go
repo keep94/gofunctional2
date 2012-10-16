@@ -166,7 +166,9 @@ func Deferred(f func() Stream) Stream {
 // Concat(x, y) = (x1, x2, ..., y1, y2, ...).
 // Calling Close on returned Stream closes all underlying streams.
 func Concat(s ...Stream) Stream {
-  return &concatStream{s: s}
+  sc := make([]Stream, len(s))
+  copy(sc, s)
+  return &concatStream{s: sc}
 }
 
 // Any returns a Filterer that returns true if any of the
