@@ -413,6 +413,51 @@ func TestDeferredClose(t *testing.T) {
   verifyClosed(t, s)
 }
 
+func TestNewStreamFromValues(t *testing.T) {
+  stream := NewStreamFromValues([]int{4, 7, 9}, nil)
+  results, err := toIntArray(stream)
+  if output := fmt.Sprintf("%v", results); output != "[4 7 9]"  {
+    t.Errorf("Expected [4 7 9] got %v", output)
+  }
+  verifyDone(t, stream, new(int), err)
+}
+
+func TestNewStreamFromValuesWithCopier(t *testing.T) {
+  stream := NewStreamFromValues([]int{4, 7, 9}, squareIntCopier)
+  results, err := toIntArray(stream)
+  if output := fmt.Sprintf("%v", results); output != "[16 49 81]"  {
+    t.Errorf("Expected [16 49 81] got %v", output)
+  }
+  verifyDone(t, stream, new(int), err)
+}
+
+func TestNewStreamFromValuesEmpty(t *testing.T) {
+  stream := NewStreamFromValues([]int{}, nil)
+  results, err := toIntArray(stream)
+  if output := fmt.Sprintf("%v", results); output != "[]"  {
+    t.Errorf("Expected [] got %v", output)
+  }
+  verifyDone(t, stream, new(int), err)
+}
+  
+func TestNewStreamFromPtrs(t *testing.T) {
+  stream := NewStreamFromPtrs([]*int{ptrInt(4), ptrInt(7), ptrInt(9)}, nil)
+  results, err := toIntArray(stream)
+  if output := fmt.Sprintf("%v", results); output != "[4 7 9]"  {
+    t.Errorf("Expected [4 7 9] got %v", output)
+  }
+  verifyDone(t, stream, new(int), err)
+}
+
+func TestNewStreamFromPtrsWithCopier(t *testing.T) {
+  stream := NewStreamFromPtrs([]*int{ptrInt(4), ptrInt(7), ptrInt(9)}, squareIntCopier)
+  results, err := toIntArray(stream)
+  if output := fmt.Sprintf("%v", results); output != "[16 49 81]"  {
+    t.Errorf("Expected [16 49 81] got %v", output)
+  }
+  verifyDone(t, stream, new(int), err)
+}
+
 func TestAny(t *testing.T) {
   a := Any(equal(1), equal(2))
   b := Any()
@@ -633,6 +678,12 @@ func (c *noDupCloseChecker) Close() error {
 
 func (c *noDupCloseChecker) isClosed() bool {
   return c.closeCount > 0
+}
+
+func squareIntCopier(src interface{}, dest interface{}) {
+  d := dest.(*int)
+  s := src.(*int)
+  *d = (*s) * (*s)
 }
 
 func xrange(start, end int) Stream {

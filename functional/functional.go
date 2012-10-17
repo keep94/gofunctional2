@@ -165,10 +165,29 @@ func Deferred(f func() Stream) Stream {
 // If x = (x1, x2, ...) and y = (y1, y2, ...) then
 // Concat(x, y) = (x1, x2, ..., y1, y2, ...).
 // Calling Close on returned Stream closes all underlying streams.
+// If caller passes a slice to Concat, no copy is made of it.
 func Concat(s ...Stream) Stream {
-  sc := make([]Stream, len(s))
-  copy(sc, s)
-  return &concatStream{s: sc}
+  return &concatStream{s: s}
+}
+
+// NewStreamFromValues converts a []T into a Stream of T. aSlice is a []T.
+// c is a Copier of T. If c is nil, regular assignment is used.
+// Calling Close on returned Stream does nothing.
+func NewStreamFromValues(aSlice interface{}, c Copier) Stream {
+  sliceValue := getSliceValue(aSlice)
+  return &plainStream{sliceValue: sliceValue, copyFunc: toSliceValueCopier(c)}
+}
+
+// NewStreamFromPtrs converts a []*T into a Stream of T. aSlice is a []*T.
+// c is a Copier of T. If c is nil, regular assignment is used.
+// Calling Close on returned Stream does nothing.
+func NewStreamFromPtrs(aSlice interface{}, c Copier) Stream {
+  sliceValue := getSliceValue(aSlice)
+  valueCopierFunc := toSliceValueCopier(c)
+  copyFunc := func(src reflect.Value, dest interface{}) {
+    valueCopierFunc(reflect.Indirect(src), dest)
+  }
+  return &plainStream{sliceValue: sliceValue, copyFunc: copyFunc}
 }
 
 // Any returns a Filterer that returns true if any of the
@@ -435,6 +454,25 @@ func (c *concatStream) Close() error {
   return result
 }
 
+type plainStream struct {
+  sliceValue reflect.Value
+  copyFunc func(src reflect.Value, dest interface{})
+  index int
+}
+
+func (s *plainStream) Next(ptr interface{}) error {
+  if s.index == s.sliceValue.Len() {
+    return Done
+  }
+  s.copyFunc(s.sliceValue.Index(s.index), ptr)
+  s.index++
+  return nil
+}
+
+func (s *plainStream) Close() error {
+  return nil
+}
+
 type funcFilterer func(ptr interface{}) bool
 
 func (f funcFilterer) Filter(ptr interface{}) bool {
@@ -611,13 +649,30 @@ func byteFlatten(b [][]byte) []byte {
   return result
 }
 
-func assignCopier(src, dest interface{}) {
-  srcP := reflect.ValueOf(src)
-  assignFromPtr(srcP, dest)
+func toSliceValueCopier(c Copier) func(src reflect.Value, dest interface{}) {
+  if c == nil {
+    return assignFromValue
+  }
+  return func(src reflect.Value, dest interface{}) {
+    c(src.Addr().Interface(), dest)
+  }
 }
 
-func assignFromPtr(srcP reflect.Value, dest interface{}) {
+func assignCopier(src, dest interface{}) {
+  srcP := reflect.ValueOf(src)
+  assignFromValue(reflect.Indirect(srcP), dest)
+}
+
+func assignFromValue(src reflect.Value, dest interface{}) {
   destP := reflect.ValueOf(dest)
-  reflect.Indirect(destP).Set(reflect.Indirect(srcP))
+  reflect.Indirect(destP).Set(src)
+}
+
+func getSliceValue(aSlice interface{}) reflect.Value {
+  sliceValue := reflect.ValueOf(aSlice)
+  if sliceValue.Kind() != reflect.Slice {
+    panic("Slice argument expected")
+  }
+  return sliceValue
 }
 
