@@ -180,8 +180,8 @@ func TestSliceStartBiggerThanEnd(t *testing.T) {
   if output := fmt.Sprintf("%v", results); output != "[]"  {
     t.Errorf("Expected [] got %v", output)
   }
-  verifyDone(t, stream, new(int), err)
   verifyClosed(t, s)
+  verifyDone(t, stream, new(int), err)
 }
 
 func TestSliceNextPropagateClose(t *testing.T) {
@@ -205,27 +205,32 @@ func TestCountFrom(t *testing.T) {
 }
 
 func TestReadRows(t *testing.T) {
-  rows := &fakeRows{ids: []int {3, 4}, names: []string{"foo", "bar"}}
+  rows := rowsCloseChecker{
+      &fakeRows{ids: []int {3, 4}, names: []string{"foo", "bar"}},
+      &simpleCloseChecker{}}
   stream := ReadRows(rows)
   results, err := toIntAndStringArray(stream)
   if output := fmt.Sprintf("%v", results); output != "[{3 foo} {4 bar}]"  {
     t.Errorf("Expected [{3 foo} {4 bar}] got %v", output)
   }
+  verifyClosed(t, rows)
   verifyDone(t, stream, new(intAndString), err)
 } 
 
 func TestReadRowsEmpty(t *testing.T) {
-  rows := &fakeRows{}
+  rows := rowsCloseChecker{
+      &fakeRows{}, &simpleCloseChecker{}}
   stream := ReadRows(rows)
   results, err := toIntAndStringArray(stream)
   if output := fmt.Sprintf("%v", results); output != "[]"  {
     t.Errorf("Expected [] got %v", output)
   }
+  verifyClosed(t, rows)
   verifyDone(t, stream, new(intAndString), err)
 } 
 
 func TestReadRowsError(t *testing.T) {
-  rows := fakeRowsError{}
+  rows := rowsCloseChecker{fakeRowsError{}, &simpleCloseChecker{}}
   s := ReadRows(rows)
   var result intAndString
   if err := s.Next(&result); err == nil || err == Done {
@@ -233,6 +238,7 @@ func TestReadRowsError(t *testing.T) {
   }
   // Close stream after examining error
   s.Close()
+  verifyClosed(t, rows)
 }
 
 func TestReadRowsNextPropagateClose(t *testing.T) {
@@ -244,6 +250,7 @@ func TestReadRowsNextPropagateClose(t *testing.T) {
   if err := stream.Close(); err != closeError {
     t.Errorf("Expected closeError, got %v", err)
   }
+  verifyClosed(t, rows)
 }
 
 func TestReadRowsManualClose(t *testing.T) {
@@ -253,18 +260,24 @@ func TestReadRowsManualClose(t *testing.T) {
 }
   
 func TestReadLines(t *testing.T) {
-  r := strings.NewReader("Now is\nthe time\nfor all good men.\n")
-  stream := ReadLines(r)
+  reader := readerCloseChecker{
+      strings.NewReader("Now is\nthe time\nfor all good men.\n"),
+      &simpleCloseChecker{}}
+  stream := ReadLines(reader)
   results, err := toStringArray(stream)
   if output := strings.Join(results,","); output != "Now is,the time,for all good men."  {
     t.Errorf("Expected 'Now is,the time,for all good men' got '%v'", output)
   }
+  verifyClosed(t, reader)
   verifyDone(t, stream, new(string), err)
 }
 
 func TestReadLinesLongLine(t *testing.T) {
   str := strings.Repeat("a", 4001) + strings.Repeat("b", 4001) + strings.Repeat("c", 4001) + "\n" + "foo"
-  stream := ReadLines(strings.NewReader(str))
+  reader := readerCloseChecker{
+      strings.NewReader(str),
+      &simpleCloseChecker{}}
+  stream := ReadLines(reader)
   results, err := toStringArray(stream)
   if results[0] != str[0:12003] {
     t.Error("Long line failed.")
@@ -275,12 +288,16 @@ func TestReadLinesLongLine(t *testing.T) {
   if len(results) != 2 {
     t.Error("Results wrong length")
   }
+  verifyClosed(t, reader)
   verifyDone(t, stream, new(string), err)
 }
 
 func TestReadLinesLongLine2(t *testing.T) {
   str := strings.Repeat("a", 4001) + strings.Repeat("b", 4001) + strings.Repeat("c", 4001)
-  stream := ReadLines(strings.NewReader(str))
+  reader := readerCloseChecker{
+      strings.NewReader(str),
+      &simpleCloseChecker{}}
+  stream := ReadLines(reader)
   results, err := toStringArray(stream)
   if results[0] != str {
     t.Error("Long line failed.")
@@ -288,6 +305,7 @@ func TestReadLinesLongLine2(t *testing.T) {
   if len(results) != 1 {
     t.Error("Results wrong length")
   }
+  verifyClosed(t, reader)
   verifyDone(t, stream, new(string), err)
 }
 
@@ -300,6 +318,7 @@ func TestReadLinesNextPropagateClose(t *testing.T) {
   if err := stream.Close(); err != closeError {
     t.Errorf("Expected closeError, got %v", err)
   }
+  verifyClosed(t, reader)
 }
 
 func TestReadLinesManualClose(t *testing.T) {
@@ -411,6 +430,7 @@ func TestDeferredCloseError(t *testing.T) {
   if output := stream.Close(); output != closeError {
     t.Errorf("Expected closeError on Close, got %v", output)
   }
+  verifyClosed(t, s)
 }
 
 func TestDeferredClose(t *testing.T) {
