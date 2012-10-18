@@ -367,9 +367,19 @@ func TestConcatCloseNormal(t *testing.T) {
   verifyClosed(t, x, y)
 }
 
-func TestConcatCloseError(t *testing.T) {
+func TestConcatCloseError1(t *testing.T) {
   x := streamCloseChecker{NilStream(), &simpleCloseChecker{closeError: closeError}}
   y := streamCloseChecker{NilStream(), &simpleCloseChecker{}}
+  stream := Concat(x, y)
+  if output := stream.Close(); output != closeError {
+    t.Errorf("Expected closeError on Close, got %v", output)
+  }
+  verifyClosed(t, x, y)
+}
+
+func TestConcatCloseError2(t *testing.T) {
+  x := streamCloseChecker{NilStream(), &simpleCloseChecker{}}
+  y := streamCloseChecker{NilStream(), &simpleCloseChecker{closeError: closeError}}
   stream := Concat(x, y)
   if output := stream.Close(); output != closeError {
     t.Errorf("Expected closeError on Close, got %v", output)
@@ -456,6 +466,84 @@ func TestNewStreamFromPtrsWithCopier(t *testing.T) {
     t.Errorf("Expected [16 49 81] got %v", output)
   }
   verifyDone(t, stream, new(int), err)
+}
+
+func TestFlatten(t *testing.T) {
+  if result := getNthDigit(15); result != 2 {
+    t.Errorf("Expected 2 got %v", result)
+  }
+  if result := getNthDigit(300); result != 6 {
+    t.Errorf("Expected 6 got %v", result)
+  }
+  if result := getNthDigit(188); result != 9 {
+    t.Errorf("Expected 9 got %v", result)
+  }
+}
+
+func TestFlattenWithEmptyStreams(t *testing.T) {
+  first := NewStreamFromValues([]int{}, nil)
+  second := NewStreamFromValues([]int{2}, nil)
+  third := NewStreamFromValues([]int{}, nil)
+  s := NewStreamFromValues([]Stream{first, second, third}, nil)
+  stream := Flatten(s)
+  results, err := toIntArray(stream)
+  if output := fmt.Sprintf("%v", results); output != "[2]" {
+    t.Errorf("Expected [2] got %v", output)
+  }
+  verifyDone(t, stream, new(int), err)
+}
+
+func TestFlattenCloseNormal(t *testing.T) {
+  first := NewStreamFromValues([]int{1, 2}, nil)
+  second := streamCloseChecker{
+      NewStreamFromValues([]int{3, 4}, nil), &simpleCloseChecker{}}
+  s := streamCloseChecker{
+      NewStreamFromValues([]Stream{first, second}, nil),
+      &simpleCloseChecker{}}
+  stream := Flatten(s)
+
+  // Implicitly closes stream after reading 3rd element
+  _, err := toIntArray(Slice(stream, 0, 3))
+  if err != Done {
+    t.Errorf("Expected Done got %v", err)
+  }
+  verifyClosed(t, s, second)
+}
+
+func TestFlattenCloseError1(t *testing.T) {
+  first := NewStreamFromValues([]int{1, 2}, nil)
+  second := streamCloseChecker{
+      NewStreamFromValues([]int{3, 4}, nil),
+      &simpleCloseChecker{closeError: closeError}}
+  s := streamCloseChecker{
+      NewStreamFromValues([]Stream{first, second}, nil),
+      &simpleCloseChecker{}}
+  stream := Flatten(s)
+
+  // Implicitly closes stream after reading 3rd element
+  _, err := toIntArray(Slice(stream, 0, 3))
+  if err != closeError {
+    t.Errorf("Expected closeError got %v", err)
+  }
+  verifyClosed(t, s, second)
+}
+
+func TestFlattenCloseError2(t *testing.T) {
+  first := NewStreamFromValues([]int{1, 2}, nil)
+  second := streamCloseChecker{
+      NewStreamFromValues([]int{3, 4}, nil),
+      &simpleCloseChecker{}}
+  s := streamCloseChecker{
+      NewStreamFromValues([]Stream{first, second}, nil),
+      &simpleCloseChecker{closeError: closeError}}
+  stream := Flatten(s)
+
+  // Implicitly closes stream after reading 3rd element
+  _, err := toIntArray(Slice(stream, 0, 3))
+  if err != closeError {
+    t.Errorf("Expected closeError got %v", err)
+  }
+  verifyClosed(t, s, second)
 }
 
 func TestAny(t *testing.T) {
@@ -678,6 +766,50 @@ func (c *noDupCloseChecker) Close() error {
 
 func (c *noDupCloseChecker) isClosed() bool {
   return c.closeCount > 0
+}
+
+// getNthDigit returns the nth digit in the sequence:
+// 12345678910111213141516... getNthDigit(1) == 1.
+func getNthDigit(x int) int {
+  s := Slice(digitStream(), x - 1, -1)
+  var result int
+  s.Next(&result)
+  s.Close()
+  return result
+}
+
+// digitStream returns a Stream of int = 1,2,3,4,5,6,7,8,9,1,0,1,1,...
+func digitStream() Stream {
+  return Flatten(Map(&intToDigitsMapper{}, Count(), new(int)))
+}
+
+// intToDigitsMapper converts an int into a Stream of int that emits its digits,
+// most significant first.
+type intToDigitsMapper struct {
+  digits []int
+}
+
+// Map maps 123 -> {1, 2, 3}. Resulting Stream is valid until the next call
+// to Map.
+func (m *intToDigitsMapper) Map(srcPtr, destPtr interface{}) bool {
+  x := *(srcPtr.(*int))
+  result := destPtr.(*Stream)
+  m.digits = m.digits[:0]
+  for x > 0 {
+    m.digits = append(m.digits, x % 10)
+    x /= 10
+  }
+  for i := 0; i < len(m.digits) - i - 1; i++ {
+    temp := m.digits[i]
+    m.digits[i] = m.digits[len(m.digits) - i - 1]
+    m.digits[len(m.digits) - i - 1] = temp
+  }
+  *result = NewStreamFromValues(m.digits, nil)
+  return true
+}
+
+func (m *intToDigitsMapper) Fast() Mapper {
+  return m
 }
 
 func squareIntCopier(src interface{}, dest interface{}) {

@@ -190,6 +190,13 @@ func NewStreamFromPtrs(aSlice interface{}, c Copier) Stream {
   return &plainStream{sliceValue: sliceValue, copyFunc: copyFunc}
 }
 
+// Flatten converts a Stream of Stream of T into a Stream of T.
+// Calling Close on returned Stream closes s and the last emitted Stream
+// from s.
+func Flatten(s Stream) Stream {
+  return &flattenStream{stream: s, current: nilS}
+}
+
 // Any returns a Filterer that returns true if any of the
 // fs return true.
 func Any(fs ...Filterer) Filterer {
@@ -444,7 +451,7 @@ func (c *concatStream) Next(ptr interface{}) error {
 }
 
 func (c *concatStream) Close() error {
-  var result error = nil
+  var result error
   for i := range c.s {
     err := c.s[i].Close()
     if result == nil {
@@ -473,6 +480,33 @@ func (s *plainStream) Close() error {
   return nil
 }
 
+type flattenStream struct {
+  stream Stream
+  current Stream
+}
+
+func (s *flattenStream) Next(ptr interface{}) error {
+  err := s.current.Next(ptr)
+  for ; err == Done; err = s.current.Next(ptr) {
+    var temp Stream
+    serr := s.stream.Next(&temp)
+    if serr != nil {
+      return serr
+    }
+    s.current = temp
+  }
+  return err
+}
+
+func (s *flattenStream) Close() error {
+  result := s.current.Close()
+  err := s.stream.Close()
+  if result == nil {
+    result = err
+  }
+  return result
+}
+  
 type funcFilterer func(ptr interface{}) bool
 
 func (f funcFilterer) Filter(ptr interface{}) bool {
