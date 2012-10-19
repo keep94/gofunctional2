@@ -190,9 +190,6 @@ func TestSliceNextPropagateClose(t *testing.T) {
   if _ ,err := toIntArray(stream); err != closeError {
     t.Errorf("Expected closeError, got %v", err)
   }
-  if err := stream.Close(); err != closeError {
-    t.Errorf("Expected closeError, got %v", err)
-  }
 }
   
 func TestCountFrom(t *testing.T) {
@@ -256,10 +253,7 @@ func TestReadRowsNextPropagateClose(t *testing.T) {
   if _, err := toIntAndStringArray(stream); err != closeError {
     t.Errorf("Expected closeError, got %v", err)
   }
-  if err := stream.Close(); err != closeError {
-    t.Errorf("Expected closeError, got %v", err)
-  }
-  verifyCloseCalled(t, rows)
+  closeVerifyResult(t, stream, closeError)
 }
 
 func TestReadRowsManualClose(t *testing.T) {
@@ -338,10 +332,7 @@ func TestReadLinesNextPropagateClose(t *testing.T) {
   if _, err := toStringArray(stream); err != closeError {
     t.Errorf("Expected closeError, got %v", err)
   }
-  if err := stream.Close(); err != closeError {
-    t.Errorf("Expected closeError, got %v", err)
-  }
-  verifyCloseCalled(t, reader)
+  closeVerifyResult(t, stream, closeError)
 }
 
 func TestReadLinesManualClose(t *testing.T) {
@@ -399,18 +390,14 @@ func TestConcatAllEmptyStreams(t *testing.T) {
 
 func TestConcatCloseEmpty(t *testing.T) {
   stream := Concat()
-  if output := stream.Close(); output != nil {
-    t.Errorf("Expected nil on Close, got %v", output)
-  }
+  closeVerifyResult(t, stream, nil)
 }
 
 func TestConcatCloseNormal(t *testing.T) {
   x := streamCloseChecker{NilStream(), &simpleCloseChecker{}}
   y := streamCloseChecker{NilStream(), &simpleCloseChecker{}}
   stream := Concat(x, y)
-  if output := stream.Close(); output != nil {
-    t.Errorf("Expected nil on Close, got %v", output)
-  }
+  closeVerifyResult(t, stream, nil)
   verifyCloseCalled(t, x, y)
 }
 
@@ -418,9 +405,7 @@ func TestConcatCloseError1(t *testing.T) {
   x := streamCloseChecker{NilStream(), &simpleCloseChecker{closeError: closeError}}
   y := streamCloseChecker{NilStream(), &simpleCloseChecker{}}
   stream := Concat(x, y)
-  if output := stream.Close(); output != closeError {
-    t.Errorf("Expected closeError on Close, got %v", output)
-  }
+  closeVerifyResult(t, stream, closeError)
   verifyCloseCalled(t, x, y)
 }
 
@@ -428,9 +413,7 @@ func TestConcatCloseError2(t *testing.T) {
   x := streamCloseChecker{NilStream(), &simpleCloseChecker{}}
   y := streamCloseChecker{NilStream(), &simpleCloseChecker{closeError: closeError}}
   stream := Concat(x, y)
-  if output := stream.Close(); output != closeError {
-    t.Errorf("Expected closeError on Close, got %v", output)
-  }
+  closeVerifyResult(t, stream, closeError)
   verifyCloseCalled(t, x, y)
 }
 
@@ -446,18 +429,14 @@ func TestDeferred(t *testing.T) {
 func TestDeferredCloseNotStarted(t *testing.T) {
   s := streamCloseChecker{NilStream(), &simpleCloseChecker{closeError: closeError}}
   stream := Deferred(func() Stream { return s })
-  if output := stream.Close(); output != nil {
-    t.Errorf("Expected nil on Close, got %v", output)
-  }
+  closeVerifyResult(t, stream, nil)
 }
 
 func TestDeferredCloseError(t *testing.T) {
   s := streamCloseChecker{xrange(2, 5), &simpleCloseChecker{closeError: closeError}}
   stream := Deferred(func() Stream { return s })
   stream.Next(new(int))
-  if output := stream.Close(); output != closeError {
-    t.Errorf("Expected closeError on Close, got %v", output)
-  }
+  closeVerifyResult(t, stream, closeError)
   verifyCloseCalled(t, s)
 }
 
@@ -465,9 +444,7 @@ func TestDeferredClose(t *testing.T) {
   s := streamCloseChecker{xrange(2, 5), &simpleCloseChecker{}}
   stream := Deferred(func() Stream { return s })
   stream.Next(new(int))
-  if output := stream.Close(); output != nil {
-    t.Errorf("Expected nil on Close, got %v", output)
-  }
+  closeVerifyResult(t, stream, nil)
   verifyCloseCalled(t, s)
 }
 
@@ -688,18 +665,20 @@ func TestCompose(t *testing.T) {
 }  
 
 func verifyDupClose(t *testing.T, c io.Closer) {
-  if err := c.Close(); err != nil {
-    t.Errorf("Expected nil on close got %v", err)
-  }
-  if err := c.Close(); err != nil {
-    t.Errorf("Expected nil on close got %v", err)
+  closeVerifyResult(t, c, nil)
+  closeVerifyResult(t, c, nil)
+}
+
+func closeVerifyResult(t *testing.T, c io.Closer, expected error) {
+  if err := c.Close(); err != expected {
+    t.Errorf("Expected %v on close, got %v", expected, err)
   }
 }
 
 func verifyCloseCalled(t *testing.T, closed ...closeChecker) {
   for i := range closed {
     if !closed[i].closeCalled() {
-      t.Error("Expected close called on all underlying streams.")
+      t.Error("Expected Close called on all underlying streams.")
       break
     }
   }
