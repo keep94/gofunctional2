@@ -217,6 +217,16 @@ func TestReadRows(t *testing.T) {
   verifyDone(t, stream, new(intAndString), err)
 } 
 
+func TestReadRowsNoImplCloser(t *testing.T) {
+  rows := &fakeRows{ids: []int {3, 4}, names: []string{"foo", "bar"}}
+  stream := ReadRows(rows)
+  results, err := toIntAndStringArray(stream)
+  if output := fmt.Sprintf("%v", results); output != "[{3 foo} {4 bar}]"  {
+    t.Errorf("Expected [{3 foo} {4 bar}] got %v", output)
+  }
+  verifyDone(t, stream, new(intAndString), err)
+} 
+
 func TestReadRowsEmpty(t *testing.T) {
   rows := rowsCloseChecker{
       &fakeRows{}, &simpleCloseChecker{}}
@@ -230,7 +240,7 @@ func TestReadRowsEmpty(t *testing.T) {
 } 
 
 func TestReadRowsError(t *testing.T) {
-  rows := rowsCloseChecker{fakeRowsError{}, &simpleCloseChecker{}}
+  rows := fakeRowsError{}
   s := ReadRows(rows)
   var result intAndString
   if err := s.Next(&result); err == nil || err == Done {
@@ -238,7 +248,6 @@ func TestReadRowsError(t *testing.T) {
   }
   // Close stream after examining error
   s.Close()
-  verifyClosed(t, rows)
 }
 
 func TestReadRowsNextPropagateClose(t *testing.T) {
@@ -258,6 +267,10 @@ func TestReadRowsManualClose(t *testing.T) {
   verifyDupClose(t, ReadRows(rows))
   verifyClosed(t, rows)
 }
+
+func TestReadRowsManualCloseNoImplCloser(t *testing.T) {
+  verifyDupClose(t, ReadRows(&fakeRows{}))
+}
   
 func TestReadLines(t *testing.T) {
   reader := readerCloseChecker{
@@ -269,6 +282,16 @@ func TestReadLines(t *testing.T) {
     t.Errorf("Expected 'Now is,the time,for all good men' got '%v'", output)
   }
   verifyClosed(t, reader)
+  verifyDone(t, stream, new(string), err)
+}
+
+func TestReadLinesNoImplCloser(t *testing.T) {
+  reader := strings.NewReader("Now is\nthe time\nfor all good men.\n")
+  stream := ReadLines(reader)
+  results, err := toStringArray(stream)
+  if output := strings.Join(results,","); output != "Now is,the time,for all good men."  {
+    t.Errorf("Expected 'Now is,the time,for all good men' got '%v'", output)
+  }
   verifyDone(t, stream, new(string), err)
 }
 
@@ -325,6 +348,11 @@ func TestReadLinesManualClose(t *testing.T) {
   reader := readerCloseChecker{strings.NewReader(""), &noDupCloseChecker{}}
   verifyDupClose(t, ReadLines(reader))
   verifyClosed(t, reader)
+}
+
+func TestReadLinesManualCloseNoImplCloser(t *testing.T) {
+  reader := strings.NewReader("")
+  verifyDupClose(t, ReadLines(reader))
 }
 
 func TestNilStream(t *testing.T) {
