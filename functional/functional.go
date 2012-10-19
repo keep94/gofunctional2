@@ -197,6 +197,21 @@ func Flatten(s Stream) Stream {
   return &flattenStream{stream: s, current: nilS}
 }
 
+// TakeWhile returns a Stream that emits the values in s until f is false. 
+// When end of returned Stream is reached, it automatically closes s if
+// s is not exhausted. Calling Close on returned Stream closes s. f is a
+// Filterer of T; s is a Stream of T.
+func TakeWhile(f Filterer, s Stream) Stream {
+  return &takeStream{Stream: s, f: f}
+}
+
+// DropWhile returns a Stream that emits the values in s starting at the
+// first value where f is false. Calling Close on returned Stream closes s.
+// f is a Filterer of T; s is a Stream of T.
+func DropWhile(f Filterer, s Stream) Stream {
+  return &dropStream{Stream: s, f: f}
+}
+
 // Any returns a Filterer that returns true if any of the
 // fs return true.
 func Any(fs ...Filterer) Filterer {
@@ -505,6 +520,50 @@ func (s *flattenStream) Close() error {
     result = err
   }
   return result
+}
+
+type takeStream struct {
+  Stream
+  f Filterer
+  done bool
+}
+
+func (s *takeStream) Next(ptr interface{}) error {
+  if s.done {
+    return Done
+  }
+  err := s.Stream.Next(ptr)
+  if err == Done {
+    s.done = true
+    return Done
+  }
+  if err != nil {
+    return err
+  }
+  if s.f.Filter(ptr) {
+    return nil
+  }
+  s.done = true
+  return finish(s.Close())
+}
+
+type dropStream struct {
+  Stream
+  f Filterer
+}
+
+func (s *dropStream) Next(ptr interface{}) error {
+  err := s.Stream.Next(ptr)
+  if s.f == nil {
+    return err
+  }
+  for ; err == nil; err = s.Stream.Next(ptr) {
+    if !s.f.Filter(ptr) {
+      s.f = nil
+      return nil
+    }
+  }
+  return err
 }
   
 type funcFilterer func(ptr interface{}) bool

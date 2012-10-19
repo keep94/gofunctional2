@@ -571,6 +571,76 @@ func TestFlattenCloseError2(t *testing.T) {
   verifyCloseCalled(t, s, second)
 }
 
+func TestTakeWhileNone(t *testing.T) {
+  s := streamCloseChecker{xrange(0, 5), &simpleCloseChecker{}}
+  stream := TakeWhile(Any(), s)
+  results, err := toIntArray(stream)
+  if output := fmt.Sprintf("%v", results); output != "[]" {
+    t.Errorf("Expected [] got %v", output)
+  }
+  verifyCloseCalled(t, s)
+  verifyDone(t, stream, new(int), err)
+}
+
+func TestTakeWhileAll(t *testing.T) {
+  s := xrange(0, 5)
+  stream := TakeWhile(All(), s)
+  results, err := toIntArray(stream)
+  if output := fmt.Sprintf("%v", results); output != "[0 1 2 3 4]" {
+    t.Errorf("Expected [0 1 2 3 4] got %v", output)
+  }
+  verifyDone(t, stream, new(int), err)
+}
+
+func TestTakeWhileSome(t *testing.T) {
+  s := streamCloseChecker{xrange(0, 5), &simpleCloseChecker{}}
+  stream := TakeWhile(notEqual(2), s)
+  results, err := toIntArray(stream)
+  if output := fmt.Sprintf("%v", results); output != "[0 1]" {
+    t.Errorf("Expected [0 1] got %v", output)
+  }
+  verifyCloseCalled(t, s)
+  verifyDone(t, stream, new(int), err)
+}
+
+func TestTakeWhilePropagateClose(t *testing.T) {
+  s := streamCloseChecker{xrange(0, 5), &simpleCloseChecker{closeError: closeError}}
+  stream := TakeWhile(notEqual(2), s)
+  if _, err := toIntArray(stream); err != closeError {
+    t.Errorf("Expected closeError, got %v", err)
+  }
+}
+
+func TestDropWhileNone(t *testing.T) {
+  s := xrange(0, 5)
+  stream := DropWhile(Any(), s)
+  results, err := toIntArray(stream)
+  if output := fmt.Sprintf("%v", results); output != "[0 1 2 3 4]" {
+    t.Errorf("Expected [0 1 2 3 4] got %v", output)
+  }
+  verifyDone(t, stream, new(int), err)
+}
+
+func TestDropWhileAll(t *testing.T) {
+  s := xrange(0, 5)
+  stream := DropWhile(All(), s)
+  results, err := toIntArray(stream)
+  if output := fmt.Sprintf("%v", results); output != "[]" {
+    t.Errorf("Expected [] got %v", output)
+  }
+  verifyDone(t, stream, new(int), err)
+}
+
+func TestDropWhileSome(t *testing.T) {
+  s := xrange(0, 5)
+  stream := DropWhile(notEqual(2), s)
+  results, err := toIntArray(stream)
+  if output := fmt.Sprintf("%v", results); output != "[2 3 4]" {
+    t.Errorf("Expected [2 3 4] got %v", output)
+  }
+  verifyDone(t, stream, new(int), err)
+}
+
 func TestAny(t *testing.T) {
   a := Any(equal(1), equal(2))
   b := Any()
