@@ -127,7 +127,7 @@ func TestSliceWithEnd(t *testing.T) {
   if output := fmt.Sprintf("%v", results); output != "[7 8]"  {
     t.Errorf("Expected [7 8] got %v", output)
   }
-  verifyClosed(t, s)
+  verifyCloseCalled(t, s)
   verifyDone(t, stream, new(int), err)
 }
 
@@ -138,7 +138,7 @@ func TestSliceWithEnd2(t *testing.T) {
   if output := fmt.Sprintf("%v", results); output != "[5 6]"  {
     t.Errorf("Expected [5 6] got %v", output)
   }
-  verifyClosed(t, s)
+  verifyCloseCalled(t, s)
   verifyDone(t, stream, new(int), err)
 }
 
@@ -149,7 +149,7 @@ func TestZeroSlice(t *testing.T) {
   if output := fmt.Sprintf("%v", results); output != "[]"  {
     t.Errorf("Expected [] got %v", output)
   }
-  verifyClosed(t, s)
+  verifyCloseCalled(t, s)
   verifyDone(t, stream, new(int), err)
 }
 
@@ -180,7 +180,7 @@ func TestSliceStartBiggerThanEnd(t *testing.T) {
   if output := fmt.Sprintf("%v", results); output != "[]"  {
     t.Errorf("Expected [] got %v", output)
   }
-  verifyClosed(t, s)
+  verifyCloseCalled(t, s)
   verifyDone(t, stream, new(int), err)
 }
 
@@ -213,7 +213,7 @@ func TestReadRows(t *testing.T) {
   if output := fmt.Sprintf("%v", results); output != "[{3 foo} {4 bar}]"  {
     t.Errorf("Expected [{3 foo} {4 bar}] got %v", output)
   }
-  verifyClosed(t, rows)
+  verifyCloseCalled(t, rows)
   verifyDone(t, stream, new(intAndString), err)
 } 
 
@@ -235,7 +235,7 @@ func TestReadRowsEmpty(t *testing.T) {
   if output := fmt.Sprintf("%v", results); output != "[]"  {
     t.Errorf("Expected [] got %v", output)
   }
-  verifyClosed(t, rows)
+  verifyCloseCalled(t, rows)
   verifyDone(t, stream, new(intAndString), err)
 } 
 
@@ -259,13 +259,13 @@ func TestReadRowsNextPropagateClose(t *testing.T) {
   if err := stream.Close(); err != closeError {
     t.Errorf("Expected closeError, got %v", err)
   }
-  verifyClosed(t, rows)
+  verifyCloseCalled(t, rows)
 }
 
 func TestReadRowsManualClose(t *testing.T) {
   rows := rowsCloseChecker{&fakeRows{}, &noDupCloseChecker{}}
   verifyDupClose(t, ReadRows(rows))
-  verifyClosed(t, rows)
+  verifyCloseCalled(t, rows)
 }
 
 func TestReadRowsManualCloseNoImplCloser(t *testing.T) {
@@ -281,7 +281,7 @@ func TestReadLines(t *testing.T) {
   if output := strings.Join(results,","); output != "Now is,the time,for all good men."  {
     t.Errorf("Expected 'Now is,the time,for all good men' got '%v'", output)
   }
-  verifyClosed(t, reader)
+  verifyCloseCalled(t, reader)
   verifyDone(t, stream, new(string), err)
 }
 
@@ -311,7 +311,7 @@ func TestReadLinesLongLine(t *testing.T) {
   if len(results) != 2 {
     t.Error("Results wrong length")
   }
-  verifyClosed(t, reader)
+  verifyCloseCalled(t, reader)
   verifyDone(t, stream, new(string), err)
 }
 
@@ -328,7 +328,7 @@ func TestReadLinesLongLine2(t *testing.T) {
   if len(results) != 1 {
     t.Error("Results wrong length")
   }
-  verifyClosed(t, reader)
+  verifyCloseCalled(t, reader)
   verifyDone(t, stream, new(string), err)
 }
 
@@ -341,13 +341,13 @@ func TestReadLinesNextPropagateClose(t *testing.T) {
   if err := stream.Close(); err != closeError {
     t.Errorf("Expected closeError, got %v", err)
   }
-  verifyClosed(t, reader)
+  verifyCloseCalled(t, reader)
 }
 
 func TestReadLinesManualClose(t *testing.T) {
   reader := readerCloseChecker{strings.NewReader(""), &noDupCloseChecker{}}
   verifyDupClose(t, ReadLines(reader))
-  verifyClosed(t, reader)
+  verifyCloseCalled(t, reader)
 }
 
 func TestReadLinesManualCloseNoImplCloser(t *testing.T) {
@@ -411,7 +411,7 @@ func TestConcatCloseNormal(t *testing.T) {
   if output := stream.Close(); output != nil {
     t.Errorf("Expected nil on Close, got %v", output)
   }
-  verifyClosed(t, x, y)
+  verifyCloseCalled(t, x, y)
 }
 
 func TestConcatCloseError1(t *testing.T) {
@@ -421,7 +421,7 @@ func TestConcatCloseError1(t *testing.T) {
   if output := stream.Close(); output != closeError {
     t.Errorf("Expected closeError on Close, got %v", output)
   }
-  verifyClosed(t, x, y)
+  verifyCloseCalled(t, x, y)
 }
 
 func TestConcatCloseError2(t *testing.T) {
@@ -431,7 +431,7 @@ func TestConcatCloseError2(t *testing.T) {
   if output := stream.Close(); output != closeError {
     t.Errorf("Expected closeError on Close, got %v", output)
   }
-  verifyClosed(t, x, y)
+  verifyCloseCalled(t, x, y)
 }
 
 func TestDeferred(t *testing.T) {
@@ -458,7 +458,7 @@ func TestDeferredCloseError(t *testing.T) {
   if output := stream.Close(); output != closeError {
     t.Errorf("Expected closeError on Close, got %v", output)
   }
-  verifyClosed(t, s)
+  verifyCloseCalled(t, s)
 }
 
 func TestDeferredClose(t *testing.T) {
@@ -468,7 +468,7 @@ func TestDeferredClose(t *testing.T) {
   if output := stream.Close(); output != nil {
     t.Errorf("Expected nil on Close, got %v", output)
   }
-  verifyClosed(t, s)
+  verifyCloseCalled(t, s)
 }
 
 func TestNewStreamFromValues(t *testing.T) {
@@ -555,7 +555,7 @@ func TestFlattenCloseNormal(t *testing.T) {
   if err != Done {
     t.Errorf("Expected Done got %v", err)
   }
-  verifyClosed(t, s, second)
+  verifyCloseCalled(t, s, second)
 }
 
 func TestFlattenCloseError1(t *testing.T) {
@@ -573,7 +573,7 @@ func TestFlattenCloseError1(t *testing.T) {
   if err != closeError {
     t.Errorf("Expected closeError got %v", err)
   }
-  verifyClosed(t, s, second)
+  verifyCloseCalled(t, s, second)
 }
 
 func TestFlattenCloseError2(t *testing.T) {
@@ -591,7 +591,7 @@ func TestFlattenCloseError2(t *testing.T) {
   if err != closeError {
     t.Errorf("Expected closeError got %v", err)
   }
-  verifyClosed(t, s, second)
+  verifyCloseCalled(t, s, second)
 }
 
 func TestAny(t *testing.T) {
@@ -696,10 +696,10 @@ func verifyDupClose(t *testing.T, s Stream) {
   }
 }
 
-func verifyClosed(t *testing.T, closed ...closeChecker) {
+func verifyCloseCalled(t *testing.T, closed ...closeChecker) {
   for i := range closed {
-    if !closed[i].isClosed() {
-      t.Error("Expected all underlying streams closed.")
+    if !closed[i].closeCalled() {
+      t.Error("Expected close called on all underlying streams.")
       break
     }
   }
@@ -759,7 +759,7 @@ func (f fakeRowsError) Scan(args ...interface{}) error {
 
 type closeChecker interface {
   io.Closer
-  isClosed() bool
+  closeCalled() bool
 }
 
 type streamCloseChecker struct {
@@ -788,16 +788,16 @@ type readerCloseChecker struct {
 
 type simpleCloseChecker struct {
   closeError error
-  closeCalled bool
+  closeCount int
 }
 
 func (sc *simpleCloseChecker) Close() error {
-  sc.closeCalled = true
+  sc.closeCount++
   return sc.closeError
 }
 
-func (sc *simpleCloseChecker) isClosed() bool {
-  return sc.closeCalled
+func (sc *simpleCloseChecker) closeCalled() bool {
+  return sc.closeCount > 0
 }
 
 type noDupCloseChecker struct {
@@ -812,7 +812,7 @@ func (c *noDupCloseChecker) Close() error {
   return alreadyClosedError
 }
 
-func (c *noDupCloseChecker) isClosed() bool {
+func (c *noDupCloseChecker) closeCalled() bool {
   return c.closeCount > 0
 }
 

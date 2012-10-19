@@ -58,7 +58,7 @@ func TestConsumersEndEarly(t *testing.T) {
   if !nc.completed {
     t.Error("MultiConsume returned before child consumers completed.")
   }
-  verifyClosed(t, s)
+  verifyCloseCalled(t, s)
 }
 
 func TestNoConsumers(t *testing.T) {
@@ -66,7 +66,7 @@ func TestNoConsumers(t *testing.T) {
   if output := MultiConsume(s, new(int), nil); output != nil {
     t.Errorf("Expected MultiConsume to return nil, got %v", output)
   }
-  verifyClosed(t, s)
+  verifyCloseCalled(t, s)
 }
 
 func TestNoNextConsumer(t *testing.T) {
@@ -78,7 +78,7 @@ func TestNoNextConsumer(t *testing.T) {
   if !nc.completed {
     t.Error("MultiConsume returned before child consumers completed.")
   }
-  verifyClosed(t, s)
+  verifyCloseCalled(t, s)
 } 
 
 func TestReadPastEndConsumer(t *testing.T) {
