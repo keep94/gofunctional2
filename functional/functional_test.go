@@ -687,11 +687,11 @@ func TestCompose(t *testing.T) {
   }
 }  
 
-func verifyDupClose(t *testing.T, s Stream) {
-  if err := s.Close(); err != nil {
+func verifyDupClose(t *testing.T, c io.Closer) {
+  if err := c.Close(); err != nil {
     t.Errorf("Expected nil on close got %v", err)
   }
-  if err := s.Close(); err != nil {
+  if err := c.Close(); err != nil {
     t.Errorf("Expected nil on close got %v", err)
   }
 }
