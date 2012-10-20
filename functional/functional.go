@@ -12,6 +12,8 @@ import (
 var (
   Done = errors.New("functional: End of Stream reached.")
   nilS = nilStream{}
+  trueFilterer = andFilterer(nil)
+  falseFilterer = orFilterer(nil)
 )
 
 // Stream is a sequence emitted values.
@@ -224,6 +226,9 @@ func DropWhile(f Filterer, s Stream) Stream {
 // Any returns a Filterer that returns true if any of the
 // fs return true.
 func Any(fs ...Filterer) Filterer {
+  if len(fs) == 0 {
+    return falseFilterer
+  }
   ors := make([][]Filterer, len(fs))
   for i := range fs {
     ors[i] = orList(fs[i])
@@ -234,6 +239,9 @@ func Any(fs ...Filterer) Filterer {
 // All returns a Filterer that returns true if all of the
 // fs return true.
 func All(fs ...Filterer) Filterer {
+  if len(fs) == 0 {
+    return trueFilterer
+  }
   ands := make([][]Filterer, len(fs))
   for i := range fs {
     ands[i] = andList(fs[i])
