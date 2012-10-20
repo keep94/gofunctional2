@@ -525,16 +525,15 @@ func (s *flattenStream) Close() error {
 type takeStream struct {
   Stream
   f Filterer
-  done bool
 }
 
 func (s *takeStream) Next(ptr interface{}) error {
-  if s.done {
+  if s.f == nil {
     return Done
   }
   err := s.Stream.Next(ptr)
   if err == Done {
-    s.done = true
+    s.f = nil
     return Done
   }
   if err != nil {
@@ -543,7 +542,7 @@ func (s *takeStream) Next(ptr interface{}) error {
   if s.f.Filter(ptr) {
     return nil
   }
-  s.done = true
+  s.f = nil
   return finish(s.Close())
 }
 
