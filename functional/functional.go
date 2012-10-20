@@ -161,6 +161,15 @@ func Deferred(f func() Stream) Stream {
   return &deferredStream{f: f}
 }
 
+// Cycle returns a Stream that repeatedly calls f and emits the resulting
+// values. Note that if f repeatedly returns the NilStream, calling Next() on
+// returned Stream will create an infinite loop. Calling Close on returned
+// Stream closes the last Stream f created or does nothing if f not called. 
+// If f returns a Stream of T then Cycle also returns a Stream of T.
+func Cycle(f func() Stream) Stream {
+  return &cycleStream{Stream: nilS, f: f}
+}
+
 // Concat concatenates multiple Streams into one.
 // If x = (x1, x2, ...) and y = (y1, y2, ...) then
 // Concat(x, y) = (x1, x2, ..., y1, y2, ...).
@@ -447,6 +456,19 @@ func (d *deferredStream) Close() error {
     return d.s.Close()
   }
   return nil
+}
+
+type cycleStream struct {
+  Stream
+  f func() Stream
+}
+
+func (c *cycleStream) Next(ptr interface{}) error {
+  err := c.Stream.Next(ptr)
+  for ; err == Done; err = c.Stream.Next(ptr) {
+    c.Stream = c.f()
+  }
+  return err
 }
 
 type concatStream struct {

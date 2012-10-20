@@ -448,6 +448,15 @@ func TestDeferredClose(t *testing.T) {
   verifyCloseCalled(t, s)
 }
 
+func TestCycle(t *testing.T) {
+  stream := Slice(
+      Cycle(func() Stream { return xrange(10, 12) }), 0, 5)
+  results, _ := toIntArray(stream)
+  if output := fmt.Sprintf("%v", results); output != "[10 11 10 11 10]"  {
+    t.Errorf("Expected [10 11 10 11 10] got %v", output)
+  }
+}
+
 func TestNewStreamFromValues(t *testing.T) {
   stream := NewStreamFromValues([]int{4, 7, 9}, nil)
   results, err := toIntArray(stream)
