@@ -84,7 +84,7 @@ type Rows interface {
 
 // NilStream returns a Stream that emits no values.
 func NilStream() Stream {
-  return nilS;
+  return nilS
 }
 
 // Map applies f, which maps a type T value to a type U value, to a Stream
