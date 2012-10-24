@@ -57,14 +57,16 @@ type Mapper interface {
   // If Mapper returns false, then no mapped value is stored at destPtr.
   // srcPtr is a *T; destPtr is a *U
   Map(srcPtr interface{}, destPtr interface{}) bool
-  // Fast returns a faster version of this Mapper. If a function will use
-  // a Mapper more than once, say in a for loop, it should call Fast and use
-  // the returned Mapper instead. Returned Mapper should be considered not
-  // thread-safe even if this Mapper is. In particular, the returned Mapper
-  // may re-use temporary storage rather than creating it anew each time Map
-  // is invoked. Most implementations can simply return themselves.
+}
+
+// The Compose function returns a CompositeMapper.
+type CompositeMapper interface {
+  Mapper
+  // Fast returns a thread unsafe version of this CompositeMapper as if
+  // FastCompose were used. This CompositeMapper is left unchanged.
   Fast() Mapper
 }
+  
 
 // Creater of T creates a new, pre-initialized, T and returns a pointer to it.
 type Creater func() interface {}
@@ -92,16 +94,20 @@ func NilStream() Stream {
 // Map applies f, which maps a type T value to a type U value, to a Stream
 // of T producing a new Stream of U. If s is
 // (x1, x2, x3, ...), Map returns the Stream (f(x1), f(x2), f(x3), ...).
-// if f returns false for a T value, then the corresponding U value is left
+// If f returns false for a T value, then the corresponding U value is left
 // out of the returned stream. ptr is a *T providing storage for emitted values
-// from s. Clients need not pass f.Fast() to Map because Map calls Fast
-// internally. Calling Close on returned Stream closes s.
+// from s. Calling Close on returned Stream closes s. If f is a
+// CompositeMapper, Fast() is called on it automatically.
 func Map(f Mapper, s Stream, ptr interface{}) Stream {
   ms, ok := s.(*mapStream)
   if ok {
-    return &mapStream{Compose(f, ms.mapper, newCreater(ptr)).Fast(), ms.Stream, ms.ptr}
+    return &mapStream{FastCompose(f, ms.mapper, ptr), ms.Stream, ms.ptr}
   }
-  return &mapStream{f.Fast(), s, ptr}
+  cm, ok := f.(CompositeMapper)
+  if ok {
+    return &mapStream{cm.Fast(), s, ptr}
+  }
+  return &mapStream{f, s, ptr}
 }
 
 // Filter filters values from s, returning a new Stream of T.
@@ -251,20 +257,33 @@ func All(fs ...Filterer) Filterer {
 
 // Compose composes two Mappers together into one e.g f(g(x)). If g maps
 // type T values to type U values, and f maps type U values to type V
-// values, then Compose returns a Mapper mapping T values to V values. c is
-// a Creater of U. Each time Map is called on returned Mapper, it invokes c
-// to create a U value to receive the intermediate result from g. Calling
-// Fast() on returned Mapper creates a new Mapper with this U value already
-// pre-initialized.
-func Compose(f Mapper, g Mapper, c Creater) Mapper {
+// values, then Compose returns a CompositeMapper mapping T values to V values.
+// c is a Creater of U. Each time Map is called on returned Mapper, it invokes
+// c to create a U value to receive the intermediate result from g.
+func Compose(f Mapper, g Mapper, c Creater) CompositeMapper {
   l := mapperLen(f) + mapperLen(g)
   mappers := make([]Mapper, l)
   creaters := make([]Creater, l - 1)
   n := appendMapper(mappers, creaters, g)
   creaters[n - 1] = c
   appendMapper(mappers[n:], creaters[n:], f)
-  return &compositeMapper{mappers, creaters, nil}
+  return &compositeMapper{mappers, creaters}
 }
+
+// FastCompose works like Compose except that it uses a *U value instead of
+// a Creater of U to link f ang g. ptr is the *U value. Intermediate results
+// from g are stored at ptr. Note that returned Mapper is thread unsafe since
+// what ptr points to changes with each call to Map.
+func FastCompose(f Mapper, g Mapper, ptr interface{}) Mapper {
+  l := mapperLen(f) + mapperLen(g)
+  mappers := make([]Mapper, l)
+  ptrs := make([]interface{}, l - 1)
+  n := appendFastMapper(mappers, ptrs, g)
+  ptrs[n - 1] = ptr
+  appendFastMapper(mappers[n:], ptrs[n:], f)
+  return &fastCompositeMapper{mappers, ptrs}
+}
+
 
 // NewFilterer returns a new Filterer of T. f takes a *T returning true
 // if T value pointed to it should be included.
@@ -629,56 +648,39 @@ func (m funcMapper) Map(srcPtr interface{}, destPtr interface{}) bool {
   return m(srcPtr, destPtr)
 }
 
-func (m funcMapper) Fast() Mapper {
-  return m
+type fastCompositeMapper struct {
+  mappers []Mapper
+  ptrs []interface{}
+}
+
+func (m *fastCompositeMapper) Map(srcPtr interface{}, destPtr interface{}) bool {
+  num := len(m.mappers)
+  if !m.mappers[0].Map(srcPtr, m.ptrs[0]) {
+    return false
+  }
+  for i := 1; i < num - 1; i++ {
+    if !m.mappers[i].Map(m.ptrs[i-1], m.ptrs[i]) {
+      return false
+    }
+  }
+  if !m.mappers[num - 1].Map(m.ptrs[num - 2], destPtr) {
+    return false
+  }
+  return true
 }
 
 type compositeMapper struct {
   mappers []Mapper
   creaters []Creater
-  values []interface{}
 }
 
 func (m *compositeMapper) Map(srcPtr interface{}, destPtr interface{}) bool {
-  if m.values != nil {
-    num := len(m.mappers)
-    if !m.mappers[0].Map(srcPtr, m.values[0]) {
-      return false
-    }
-    for i := 1; i < num - 1; i++ {
-      if !m.mappers[i].Map(m.values[i-1], m.values[i]) {
-        return false
-      }
-    }
-    if !m.mappers[num - 1].Map(m.values[num - 2], destPtr) {
-      return false
-    }
-    return true
-  }
-  return m.Fast().Map(srcPtr, destPtr)
+  x := &fastCompositeMapper{m.mappers, toPtrs(m.creaters)}
+  return x.Map(srcPtr, destPtr)
 }
 
 func (m *compositeMapper) Fast() Mapper {
-  if m.values != nil {
-    return m
-  }
-  return &compositeMapper{m.fastMappers(), m.creaters, m.createValues()}
-}
-
-func (m *compositeMapper) createValues() []interface{} {
-  result := make([]interface{}, len(m.creaters))
-  for i := range m.creaters {
-    result[i] = m.creaters[i]()
-  }
-  return result
-}
-
-func (m *compositeMapper) fastMappers() []Mapper {
-  result := make([]Mapper, len(m.mappers))
-  for i := range m.mappers {
-    result[i] = m.mappers[i].Fast()
-  }
-  return result
+  return &fastCompositeMapper{m.mappers, toPtrs(m.creaters)}
 }
 
 func orList(f Filterer) []Filterer {
@@ -711,22 +713,59 @@ func filterFlatten(fs [][]Filterer) []Filterer {
 }
 
 func mapperLen(m Mapper) int {
-  cm, ok := m.(*compositeMapper)
-  if ok {
-    return len(cm.mappers)
+  switch am := m.(type) {
+  case *compositeMapper:
+    return len(am.mappers)
+  case *fastCompositeMapper:
+    return len(am.mappers)
   }
   return 1
 }
 
 func appendMapper(mappers []Mapper, creaters []Creater, m Mapper) int {
-  cm, ok := m.(*compositeMapper)
-  if ok {
-    copy(creaters, cm.creaters)
-    return copy(mappers, cm.mappers)
+  switch am := m.(type) {
+  case *compositeMapper:
+    copy(creaters, am.creaters)
+    return copy(mappers, am.mappers)
+  case *fastCompositeMapper:
+    copy(creaters, toCreaters(am.ptrs))
+    return copy(mappers, am.mappers)
+  default:
+    mappers[0] = m
   }
-  mappers[0] = m
   return 1
 }
+
+func appendFastMapper(mappers []Mapper, ptrs []interface{}, m Mapper) int {
+  switch am := m.(type) {
+  case *compositeMapper:
+    copy(ptrs, toPtrs(am.creaters))
+    return copy(mappers, am.mappers)
+  case *fastCompositeMapper:
+    copy(ptrs, am.ptrs)
+    return copy(mappers, am.mappers)
+  default:
+    mappers[0] = m
+  }
+  return 1
+}
+
+func toPtrs(creaters []Creater) []interface{} {
+  result := make([]interface{}, len(creaters))
+  for i := range creaters {
+    result[i] = creaters[i]()
+  }
+  return result
+}
+
+func toCreaters(ptrs []interface{}) []Creater {
+  result := make([]Creater, len(ptrs))
+  for i := range ptrs {
+    result[i] = newCreater(ptrs[i])
+  }
+  return result
+}
+
 
 func newCreater(ptr interface{}) Creater {
   return func() interface{} {

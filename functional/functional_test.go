@@ -103,6 +103,41 @@ func TestNoMapInMap(t *testing.T) {
 func TestNestedMap(t *testing.T) {
   s := Map(squareIntInt32, xrange(3, 6), new(int))
   stream := Map(doubleInt32Int64, s, new(int32))
+  ms := stream.(*mapStream)
+  _, ok := ms.mapper.(*fastCompositeMapper)
+  if !ok {
+    t.Error("Nested Mappes Stream does not contain a fast composite mapper")
+  }
+  results, err := toInt64Array(stream)
+  if output := fmt.Sprintf("%v", results); output != "[18 32 50]"  {
+    t.Errorf("Expected [18 32 50] got %v", output)
+  }
+  verifyDone(t, stream, new(int64), err)
+}
+
+func TestNestedMapWithCompositeMapper(t *testing.T) {
+  cm := Compose(doubleInt32Int64, squareIntInt32, func() interface{} { return new(int32) })
+  stream := Map(cm, xrange(3, 6), new(int))
+  ms := stream.(*mapStream)
+  _, ok := ms.mapper.(*fastCompositeMapper)
+  if !ok {
+    t.Error("Nested Mappes Stream does not contain a fast composite mapper")
+  }
+  results, err := toInt64Array(stream)
+  if output := fmt.Sprintf("%v", results); output != "[18 32 50]"  {
+    t.Errorf("Expected [18 32 50] got %v", output)
+  }
+  verifyDone(t, stream, new(int64), err)
+}
+
+func TestNestedMapWithFastCompositeMapper(t *testing.T) {
+  fcm := FastCompose(doubleInt32Int64, squareIntInt32, new(int32))
+  stream := Map(fcm, xrange(3, 6), new(int))
+  ms := stream.(*mapStream)
+  _, ok := ms.mapper.(*fastCompositeMapper)
+  if !ok {
+    t.Error("Nested Mappes Stream does not contain a fast composite mapper")
+  }
   results, err := toInt64Array(stream)
   if output := fmt.Sprintf("%v", results); output != "[18 32 50]"  {
     t.Errorf("Expected [18 32 50] got %v", output)
@@ -724,8 +759,6 @@ func TestCompose(t *testing.T) {
   f := squareIntInt32
   g := doubleInt32Int64
   h := int64Plus1
-  var i32 int32
-  var i64 int64
   c := Compose(g, f, func() interface{} { return new(int32)})
   c = Compose(h, c, func() interface{} { return new(int64)})
   if x := len(c.(*compositeMapper).mappers); x != 3 {
@@ -738,10 +771,51 @@ func TestCompose(t *testing.T) {
   if result != 51 {
     t.Error("Map returned wrong value.")
   }
-  if i32 != 0 || i64 != 0 {
-    t.Error("Mapper not thread safe.")
+  var fastResult int64
+  if !c.Fast().Map(ptrInt(5), &fastResult) {
+    t.Error("Map returns false instead of true.")
   }
+  if fastResult != 51 {
+    t.Error("Map returned wrong value.")
+  }
+
 }  
+
+func TestFastCompose(t *testing.T) {
+  f := squareIntInt32
+  g := doubleInt32Int64
+  h := int64Plus1
+  c := FastCompose(g, f, new(int32))
+  c = FastCompose(h, c, new(int64))
+  if x := len(c.(*fastCompositeMapper).mappers); x != 3 {
+    t.Error("Composition of fast composite mapper wrong.")
+  }
+  var result int64
+  if !c.Map(ptrInt(5), &result) {
+    t.Error("Map returns false instead of true.")
+  }
+  if result != 51 {
+    t.Error("Map returned wrong value.")
+  }
+}
+
+func TestComposeFastCompose(t *testing.T) {
+  f := squareIntInt32
+  g := doubleInt32Int64
+  h := int64Plus1
+  var c Mapper = Compose(g, f, func() interface{} { return new(int32) })
+  c = FastCompose(h, c, new(int64))
+  if x := len(c.(*fastCompositeMapper).mappers); x != 3 {
+    t.Error("Composition of fast composite mapper wrong.")
+  }
+  var result int64
+  if !c.Map(ptrInt(5), &result) {
+    t.Error("Map returns false instead of true.")
+  }
+  if result != 51 {
+    t.Error("Map returned wrong value.")
+  }
+}
 
 func verifyDupClose(t *testing.T, c io.Closer) {
   closeVerifyResult(t, c, nil)
@@ -912,10 +986,6 @@ func (m *intToDigitsMapper) Map(srcPtr, destPtr interface{}) bool {
   }
   *result = NewStreamFromValues(m.digits, nil)
   return true
-}
-
-func (m *intToDigitsMapper) Fast() Mapper {
-  return m
 }
 
 func squareIntCopier(src interface{}, dest interface{}) {
