@@ -761,7 +761,7 @@ func TestCompose(t *testing.T) {
   h := int64Plus1
   c := Compose(g, f, func() interface{} { return new(int32)})
   c = Compose(h, c, func() interface{} { return new(int64)})
-  if x := len(c.(*compositeMapper).mappers); x != 3 {
+  if x := len(c.mappers()); x != 3 {
     t.Error("Composition of composite mapper wrong.")
   }
   var result int64
@@ -778,8 +778,37 @@ func TestCompose(t *testing.T) {
   if fastResult != 51 {
     t.Error("Map returned wrong value.")
   }
-
 }  
+
+func TestCompositeMapperZero(t *testing.T) {
+  c := CompositeMapper{}
+  var x, y int
+  if c.Map(&x, &y) {
+    t.Error("Map on zero CompositeMapper should always return false.")
+  }
+  if c.Fast().Map(&x, &y) {
+    t.Error("Calling Fast().Map on zero CompositeMapper should always return false.")
+  }
+}
+
+func TestComposeWithZero(t *testing.T) {
+  f := squareIntInt32
+  c := Compose(f, CompositeMapper{}, func() interface{} { return new(int)})
+  if x := len(c.mappers()); x != 3 {
+    t.Error("Composition of composite mapper wrong.")
+  }
+  var result int32
+  if c.Map(ptrInt(5), &result) {
+    t.Error("Map should return false instead of true.")
+  }
+  c = Compose(CompositeMapper{}, f, func() interface{} { return new(int32)})
+  if x := len(c.mappers()); x != 3 {
+    t.Error("Composition of composite mapper wrong.")
+  }
+  if c.Map(ptrInt(5), &result) {
+    t.Error("Map should return false instead of true.")
+  }
+}
 
 func TestFastCompose(t *testing.T) {
   f := squareIntInt32
@@ -796,6 +825,25 @@ func TestFastCompose(t *testing.T) {
   }
   if result != 51 {
     t.Error("Map returned wrong value.")
+  }
+}
+
+func TestFastComposeWithZero(t *testing.T) {
+  f := squareIntInt32
+  c := FastCompose(f, CompositeMapper{}, new(int))
+  if x := len(c.(*fastCompositeMapper).mappers); x != 3 {
+    t.Error("Composition of fast composite mapper wrong.")
+  }
+  var result int32
+  if c.Map(ptrInt(5), &result) {
+    t.Error("Map should return false instead of true.")
+  }
+  c = FastCompose(CompositeMapper{}, f, new(int32))
+  if x := len(c.(*fastCompositeMapper).mappers); x != 3 {
+    t.Error("Composition of fast composite mapper wrong.")
+  }
+  if c.Map(ptrInt(5), &result) {
+    t.Error("Map should return false instead of true.")
   }
 }
 
