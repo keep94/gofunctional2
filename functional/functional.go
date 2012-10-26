@@ -65,9 +65,10 @@ type Mapper interface {
   Map(srcPtr interface{}, destPtr interface{}) bool
 }
 
-// The Compose function returns a CompositeMapper. The zero value for
-// CompositeMapper is a Mapper that maps nothing (the Map method
-// always returns false).
+// CompositeMapper represents Mappers composed together e.g f(g(x)).
+// A CompositeMapper is thread-safe if its underlying Mappers are thread-safe.
+// The zero value for CompositeMapper is a Mapper that maps nothing
+// (the Map method always returns false).
 type CompositeMapper struct {
   payload *compositeMapperPayload
 }
@@ -300,8 +301,9 @@ func Compose(f Mapper, g Mapper, c Creater) CompositeMapper {
 
 // FastCompose works like Compose except that it uses a *U value instead of
 // a Creater of U to link f ang g. ptr is the *U value. Intermediate results
-// from g are stored at ptr. Note that returned Mapper is thread unsafe since
-// what ptr points to changes with each call to Map.
+// from g are stored at ptr. Unlike Compose, the Mapper that FastCompose
+// returns is never thread-safe since what ptr points to changes with
+// each call to Map.
 func FastCompose(f Mapper, g Mapper, ptr interface{}) Mapper {
   l := mapperLen(f) + mapperLen(g)
   mappers := make([]Mapper, l)
@@ -311,7 +313,6 @@ func FastCompose(f Mapper, g Mapper, ptr interface{}) Mapper {
   appendFastMapper(mappers[n:], ptrs[n:], f)
   return &fastCompositeMapper{mappers, ptrs}
 }
-
 
 // NewFilterer returns a new Filterer of T. f takes a *T returning true
 // if T value pointed to it should be included.
