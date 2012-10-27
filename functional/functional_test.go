@@ -115,7 +115,7 @@ func TestNestedMap(t *testing.T) {
   s := Map(squareIntInt32, xrange(3, 6), new(int))
   stream := Map(doubleInt32Int64, s, new(int32))
   ms := stream.(*mapStream)
-  _, ok := ms.mapper.(*fastCompositeMapper)
+  _, ok := ms.mapper.(fastCompositeMapper)
   if !ok {
     t.Error("Nested Mappes Stream does not contain a fast composite mapper")
   }
@@ -130,7 +130,7 @@ func TestNestedMapWithCompositeMapper(t *testing.T) {
   cm := Compose(doubleInt32Int64, squareIntInt32, func() interface{} { return new(int32) })
   stream := Map(cm, xrange(3, 6), new(int))
   ms := stream.(*mapStream)
-  _, ok := ms.mapper.(*fastCompositeMapper)
+  _, ok := ms.mapper.(fastCompositeMapper)
   if !ok {
     t.Error("Nested Mapper Stream does not contain a fast composite mapper")
   }
@@ -145,7 +145,7 @@ func TestNestedMapWithFastCompositeMapper(t *testing.T) {
   fcm := FastCompose(doubleInt32Int64, squareIntInt32, new(int32))
   stream := Map(fcm, xrange(3, 6), new(int))
   ms := stream.(*mapStream)
-  _, ok := ms.mapper.(*fastCompositeMapper)
+  _, ok := ms.mapper.(fastCompositeMapper)
   if !ok {
     t.Error("Nested Mappes Stream does not contain a fast composite mapper")
   }
@@ -814,7 +814,7 @@ func TestCompose(t *testing.T) {
   h := int64Plus1
   c := Compose(g, f, func() interface{} { return new(int32)})
   c = Compose(h, c, func() interface{} { return new(int64)})
-  if x := len(c.mappers()); x != 3 {
+  if x := len(c.pieces()); x != 3 {
     t.Errorf("Expected 3, got %v", x)
   }
   var result int64
@@ -833,6 +833,33 @@ func TestCompose(t *testing.T) {
   }
 }  
 
+func TestCompose2(t *testing.T) {
+  a := addMapper(1)
+  b := addMapper(2)
+  c := addMapper(3)
+  d := addMapper(4)
+  e := addMapper(5)
+  f := func() interface{} { return new(int) }
+  c1 := Compose(a, b, f)
+  c2 := Compose(c, d, f)
+  c2 = Compose(e, c2, f)
+  c3 := Compose(c1, c2, f)
+  var result int
+  if output := c3.Map(ptrInt(0), &result); output != nil {
+    t.Errorf("Expected nil, got %v", output)
+  }
+  if result != 15 {
+    t.Errorf("Expected 15, got %v", result)
+  }
+  var fastResult int
+  if output := c3.Fast().Map(ptrInt(0), &fastResult); output != nil {
+    t.Errorf("Expected nil, got %v", output)
+  }
+  if fastResult != 15 {
+    t.Errorf("Expected 15, got %v", fastResult)
+  }
+}  
+
 func TestCompositeMapperZero(t *testing.T) {
   c := CompositeMapper{}
   var x, y int
@@ -847,16 +874,16 @@ func TestCompositeMapperZero(t *testing.T) {
 func TestComposeWithZero(t *testing.T) {
   f := squareIntInt32
   c := Compose(f, CompositeMapper{}, func() interface{} { return new(int)})
-  if x := len(c.mappers()); x != 3 {
-    t.Errorf("Expected 3, got %v", x)
+  if x := len(c.pieces()); x != 2 {
+    t.Errorf("Expected 2, got %v", x)
   }
   var result int32
   if output := c.Map(ptrInt(5), &result); output != Skipped {
     t.Errorf("Expected Skipped, got %v", output)
   }
   c = Compose(CompositeMapper{}, f, func() interface{} { return new(int32)})
-  if x := len(c.mappers()); x != 3 {
-    t.Errorf("Expected 3, got %v", x)
+  if x := len(c.pieces()); x != 2 {
+    t.Errorf("Expected 2, got %v", x)
   }
   if output := c.Map(ptrInt(5), &result); output != Skipped {
     t.Errorf("Expected Skipped, got %v", output)
@@ -869,7 +896,7 @@ func TestFastCompose(t *testing.T) {
   h := int64Plus1
   c := FastCompose(g, f, new(int32))
   c = FastCompose(h, c, new(int64))
-  if x := len(c.(*fastCompositeMapper).mappers); x != 3 {
+  if x := len(c.(fastCompositeMapper).pieces); x != 3 {
     t.Errorf("Expected 3, got %v", x)
   }
   var result int64
@@ -881,19 +908,41 @@ func TestFastCompose(t *testing.T) {
   }
 }
 
+func TestFastCompose2(t *testing.T) {
+  a := addMapper(1)
+  b := addMapper(2)
+  c := addMapper(3)
+  d := addMapper(4)
+  e := addMapper(5)
+  c1 := FastCompose(a, b, new(int))
+  c2 := FastCompose(c, d, new(int))
+  c2 = FastCompose(e, c2, new(int))
+  c3 := FastCompose(c1, c2, new(int))
+  var result int
+  if output := c3.Map(ptrInt(0), &result); output != nil {
+    t.Errorf("Expected nil, got %v", output)
+  }
+  if result != 15 {
+    t.Errorf("Expected 15, got %v", result)
+  }
+  if output := len(c3.(fastCompositeMapper).pieces); output != 5 {
+    t.Errorf("Expected 5, got %v", output)
+  }
+}  
+
 func TestFastComposeWithZero(t *testing.T) {
   f := squareIntInt32
   c := FastCompose(f, CompositeMapper{}, new(int))
-  if x := len(c.(*fastCompositeMapper).mappers); x != 3 {
-    t.Errorf("Expected 3, got %v", x)
+  if x := len(c.(fastCompositeMapper).pieces); x != 2 {
+    t.Errorf("Expected 2, got %v", x)
   }
   var result int32
   if output := c.Map(ptrInt(5), &result); output != Skipped {
     t.Errorf("Expected Skipped, got %v", output)
   }
   c = FastCompose(CompositeMapper{}, f, new(int32))
-  if x := len(c.(*fastCompositeMapper).mappers); x != 3 {
-    t.Errorf("Expected 3, got %v", x)
+  if x := len(c.(fastCompositeMapper).pieces); x != 2 {
+    t.Errorf("Expected 2, got %v", x)
   }
   if output := c.Map(ptrInt(5), &result); output != Skipped {
     t.Errorf("Expected Skipped, got %v", output)
@@ -906,7 +955,25 @@ func TestComposeFastCompose(t *testing.T) {
   h := int64Plus1
   var c Mapper = Compose(g, f, func() interface{} { return new(int32) })
   c = FastCompose(h, c, new(int64))
-  if x := len(c.(*fastCompositeMapper).mappers); x != 3 {
+  if x := len(c.(fastCompositeMapper).pieces); x != 3 {
+    t.Errorf("Expected 3, got %v", x)
+  }
+  var result int64
+  if output := c.Map(ptrInt(5), &result); output != nil {
+    t.Errorf("Expected nil, got %v", output)
+  }
+  if result != 51 {
+    t.Errorf("Expected 51, got %v", result)
+  }
+}
+
+func TestFastComposeCompose(t *testing.T) {
+  f := squareIntInt32
+  g := doubleInt32Int64
+  h := int64Plus1
+  fc := FastCompose(g, f, new(int32))
+  c := Compose(h, fc, func() interface{} { return new(int64)})
+  if x := len(c.pieces()); x != 3 {
     t.Errorf("Expected 3, got %v", x)
   }
   var result int64
@@ -1126,6 +1193,15 @@ func (m *intToDigitsMapper) Map(srcPtr, destPtr interface{}) error {
     m.digits[len(m.digits) - i - 1] = temp
   }
   *result = NewStreamFromValues(m.digits, nil)
+  return nil
+}
+
+type addMapper int
+
+func (m addMapper) Map(srcPtr, destPtr interface{}) error {
+  x := srcPtr.(*int)
+  y := destPtr.(*int)
+  *y = *x + int(m)
   return nil
 }
 

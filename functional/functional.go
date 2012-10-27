@@ -12,12 +12,8 @@ import (
 var (
   Done = errors.New("functional: End of Stream reached.")
   Skipped = errors.New("functional: Value skipped.")
-  nilC = func() interface{} {
-    return nil
-  }
-  nilCL = []Creater {nilC}
   nilM = nilMapper{}
-  nilML = []Mapper{nilM, nilM}
+  nilPieceL = []compositeMapperPiece{{mapper: nilM}}
   nilS = nilStream{}
   trueFilterer = andFilterer(nil)
   falseFilterer = orFilterer(nil)
@@ -72,7 +68,7 @@ type Mapper interface {
 // The zero value for CompositeMapper is a Mapper that maps nothing
 // (the Map method always returns Skipped).
 type CompositeMapper struct {
-  payload *compositeMapperPayload
+  _pieces []compositeMapperPiece
 }
 
 func (c CompositeMapper) Map(srcPtr interface{}, destPtr interface{}) error {
@@ -80,23 +76,21 @@ func (c CompositeMapper) Map(srcPtr interface{}, destPtr interface{}) error {
 }
 
 // Fast returns a thread unsafe version of this CompositeMapper as if
-// FastCompose were used. This CompositeMapper is left unchanged.
+// FastCompose were used.
 func (c CompositeMapper) Fast() Mapper {
-  return &fastCompositeMapper{c.mappers(), toPtrs(c.creaters())}
+  pieces := c.pieces()
+  fastPieces := make([]fastMapperPiece, len(pieces))
+  for i := range fastPieces {
+    fastPieces[i].setFromCompositePiece(&pieces[i])
+  }
+  return fastCompositeMapper{fastPieces}
 }
 
-func (c CompositeMapper) mappers() []Mapper {
-  if c.payload == nil {
-    return nilML
+func (c CompositeMapper) pieces() []compositeMapperPiece {
+  if len(c._pieces) == 0 {
+    return nilPieceL
   }
-  return c.payload.mappers
-}
-
-func (c CompositeMapper) creaters() []Creater {
-  if c.payload == nil {
-    return nilCL
-  }
-  return c.payload.creaters
+  return c._pieces
 }
 
 // Creater of T creates a new, pre-initialized, T and returns a pointer to it.
@@ -298,12 +292,11 @@ func All(fs ...Filterer) Filterer {
 // it invokes c to create a U value to receive the intermediate result from g.
 func Compose(f Mapper, g Mapper, c Creater) CompositeMapper {
   l := mapperLen(f) + mapperLen(g)
-  mappers := make([]Mapper, l)
-  creaters := make([]Creater, l - 1)
-  n := appendMapper(mappers, creaters, g)
-  creaters[n - 1] = c
-  appendMapper(mappers[n:], creaters[n:], f)
-  return CompositeMapper{&compositeMapperPayload{mappers, creaters}}
+  pieces := make([]compositeMapperPiece, l)
+  n := appendMapper(pieces, g)
+  pieces[n - 1].creater = c
+  appendMapper(pieces[n:], f)
+  return CompositeMapper{pieces}
 }
 
 // FastCompose works like Compose except that it uses a *U value instead of
@@ -313,12 +306,11 @@ func Compose(f Mapper, g Mapper, c Creater) CompositeMapper {
 // each call to Map.
 func FastCompose(f Mapper, g Mapper, ptr interface{}) Mapper {
   l := mapperLen(f) + mapperLen(g)
-  mappers := make([]Mapper, l)
-  ptrs := make([]interface{}, l - 1)
-  n := appendFastMapper(mappers, ptrs, g)
-  ptrs[n - 1] = ptr
-  appendFastMapper(mappers[n:], ptrs[n:], f)
-  return &fastCompositeMapper{mappers, ptrs}
+  pieces := make([]fastMapperPiece, l)
+  n := appendFastMapper(pieces, g)
+  pieces[n - 1].ptr = ptr
+  appendFastMapper(pieces[n:], f)
+  return fastCompositeMapper{pieces}
 }
 
 // NewFilterer returns a new Filterer of T. f takes a *T returning nil
@@ -698,29 +690,54 @@ func (m funcMapper) Map(srcPtr interface{}, destPtr interface{}) error {
 }
 
 type fastCompositeMapper struct {
-  mappers []Mapper
-  ptrs []interface{}
+  pieces []fastMapperPiece
 }
 
-func (m *fastCompositeMapper) Map(srcPtr interface{}, destPtr interface{}) error {
-  num := len(m.mappers)
-  if err := m.mappers[0].Map(srcPtr, m.ptrs[0]); err != nil {
-    return err
-  }
-  for i := 1; i < num - 1; i++ {
-    if err := m.mappers[i].Map(m.ptrs[i-1], m.ptrs[i]); err != nil {
+func (m fastCompositeMapper) Map(srcPtr interface{}, destPtr interface{}) error {
+  sPtr := srcPtr
+  var dPtr interface{}
+  length := len(m.pieces)
+  for i := range m.pieces {
+    piece := &m.pieces[i]
+    if (i == length - 1) {
+      dPtr = destPtr
+    } else {
+      dPtr = piece.ptr
+    }
+    if err := piece.mapper.Map(sPtr, dPtr); err != nil {
       return err
     }
-  }
-  if err := m.mappers[num - 1].Map(m.ptrs[num - 2], destPtr); err != nil {
-    return err
+    sPtr = dPtr
   }
   return nil
 }
 
-type compositeMapperPayload struct {
-  mappers []Mapper
-  creaters []Creater
+type compositeMapperPiece struct {
+  mapper Mapper
+  creater Creater
+}
+
+func (cmp *compositeMapperPiece) setFromFastPiece(fmp *fastMapperPiece) {
+  cmp.mapper = fmp.mapper
+  if fmp.ptr == nil {
+    cmp.creater = nil
+  } else {
+    cmp.creater = newCreater(fmp.ptr)
+  }
+}
+
+type fastMapperPiece struct {
+  mapper Mapper
+  ptr interface{}
+}
+
+func (fmp *fastMapperPiece) setFromCompositePiece(cmp *compositeMapperPiece) {
+  fmp.mapper = cmp.mapper
+  if cmp.creater == nil {
+    fmp.ptr = nil
+  } else {
+    fmp.ptr = cmp.creater()
+  }
 }
 
 func orList(f Filterer) []Filterer {
@@ -755,57 +772,43 @@ func filterFlatten(fs [][]Filterer) []Filterer {
 func mapperLen(m Mapper) int {
   switch am := m.(type) {
   case CompositeMapper:
-    return len(am.mappers())
-  case *fastCompositeMapper:
-    return len(am.mappers)
+    return len(am.pieces())
+  case fastCompositeMapper:
+    return len(am.pieces)
   }
   return 1
 }
 
-func appendMapper(mappers []Mapper, creaters []Creater, m Mapper) int {
+func appendMapper(pieces []compositeMapperPiece, m Mapper) int {
   switch am := m.(type) {
   case CompositeMapper:
-    copy(creaters, am.creaters())
-    return copy(mappers, am.mappers())
-  case *fastCompositeMapper:
-    copy(creaters, toCreaters(am.ptrs))
-    return copy(mappers, am.mappers)
+    return copy(pieces, am.pieces())
+  case fastCompositeMapper:
+    for i := range am.pieces {
+      pieces[i].setFromFastPiece(&am.pieces[i])
+    }
+    return len(am.pieces)
   default:
-    mappers[0] = m
+    pieces[0] = compositeMapperPiece{mapper: m}
   }
   return 1
 }
 
-func appendFastMapper(mappers []Mapper, ptrs []interface{}, m Mapper) int {
+func appendFastMapper(pieces []fastMapperPiece, m Mapper) int {
   switch am := m.(type) {
   case CompositeMapper:
-    copy(ptrs, toPtrs(am.creaters()))
-    return copy(mappers, am.mappers())
-  case *fastCompositeMapper:
-    copy(ptrs, am.ptrs)
-    return copy(mappers, am.mappers)
+    ampieces := am.pieces()
+    for i := range ampieces {
+      pieces[i].setFromCompositePiece(&ampieces[i])
+    }
+    return len(ampieces)
+  case fastCompositeMapper:
+    return copy(pieces, am.pieces)
   default:
-    mappers[0] = m
+    pieces[0] = fastMapperPiece{mapper: m}
   }
   return 1
 }
-
-func toPtrs(creaters []Creater) []interface{} {
-  result := make([]interface{}, len(creaters))
-  for i := range creaters {
-    result[i] = creaters[i]()
-  }
-  return result
-}
-
-func toCreaters(ptrs []interface{}) []Creater {
-  result := make([]Creater, len(ptrs))
-  for i := range ptrs {
-    result[i] = newCreater(ptrs[i])
-  }
-  return result
-}
-
 
 func newCreater(ptr interface{}) Creater {
   return func() interface{} {
