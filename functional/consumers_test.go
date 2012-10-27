@@ -125,15 +125,21 @@ func (nc *noNextConsumer) Consume(s Stream) {
 }
 
 func newEvenNumberConsumer() *filterConsumer {
-  return &filterConsumer{f: NewFilterer(func(ptr interface{}) bool {
+  return &filterConsumer{f: NewFilterer(func(ptr interface{}) error {
     p := ptr.(*int)
-    return *p % 2 == 0
+    if *p % 2 == 0 {
+      return nil
+    }
+    return Skipped
   })}
 }
 
 func newOddNumberConsumer() *filterConsumer {
-  return &filterConsumer{f: NewFilterer(func(ptr interface{}) bool {
+  return &filterConsumer{f: NewFilterer(func(ptr interface{}) error {
     p := ptr.(*int)
-    return *p % 2 == 1
+    if *p % 2 == 1 {
+      return nil
+    }
+    return Skipped
   })}
 }

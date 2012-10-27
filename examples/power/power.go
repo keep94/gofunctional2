@@ -31,10 +31,10 @@ func Power(items []int) functional.Stream {
 // appendFilterer adds a particular int to an existing set.
 type appendFilterer int
 
-func (a appendFilterer) Filter(ptr interface{}) bool {
+func (a appendFilterer) Filter(ptr interface{}) error {
   p := ptr.(*[]int)
   *p = append(*p, int(a))
-  return true
+  return nil
 }
 
 func main() {

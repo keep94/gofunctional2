@@ -11,6 +11,7 @@ import (
 // Done indicates that the end of a Stream has been reached
 var (
   Done = errors.New("functional: End of Stream reached.")
+  Skipped = errors.New("functional: Value skipped.")
   nilC = func() interface{} {
     return nil
   }
@@ -52,28 +53,29 @@ type Tuple interface {
 
 // Filterer of T filters values in a Stream of T.
 type Filterer interface {
-  // Filter returns true if value ptr points to should be included or false
-  // otherwise. ptr must be a *T.
-  Filter(ptr interface{}) bool
+  // Filter returns nil if value ptr points to should be included or Skipped
+  // if value should be skipped. Filter may return other errors. ptr must be
+  // a *T.
+  Filter(ptr interface{}) error
 }
 
 // Mapper maps a type T value to a type U value in a Stream.
 type Mapper interface {
   // Map does the mapping storing the mapped value at destPtr.
-  // If Mapper returns false, then no mapped value is stored at destPtr.
-  // srcPtr is a *T; destPtr is a *U
-  Map(srcPtr interface{}, destPtr interface{}) bool
+  // If Mapper returns Skipped, then no mapped value is stored at destPtr.
+  // Map may return other errors. srcPtr is a *T; destPtr is a *U
+  Map(srcPtr interface{}, destPtr interface{}) error
 }
 
 // CompositeMapper represents Mappers composed together e.g f(g(x)).
 // A CompositeMapper is thread-safe if its underlying Mappers are thread-safe.
 // The zero value for CompositeMapper is a Mapper that maps nothing
-// (the Map method always returns false).
+// (the Map method always returns Skipped).
 type CompositeMapper struct {
   payload *compositeMapperPayload
 }
 
-func (c CompositeMapper) Map(srcPtr interface{}, destPtr interface{}) bool {
+func (c CompositeMapper) Map(srcPtr interface{}, destPtr interface{}) error {
   return c.Fast().Map(srcPtr, destPtr)
 }
 
@@ -139,8 +141,9 @@ func Map(f Mapper, s Stream, ptr interface{}) Stream {
   return &mapStream{f, s, ptr}
 }
 
-// Filter filters values from s, returning a new Stream of T.
-// Calling Close on returned Stream closes s.
+// Filter filters values from s, returning a new Stream of T. The returned
+// Stream's Next method reports any errors besides Skipped that the Filter
+// method of f returns. Calling Close on returned Stream closes s.
 // f is a Filterer of T; s is a Stream of T.
 func Filter(f Filterer, s Stream) Stream {
   fs, ok := s.(*filterStream)
@@ -243,23 +246,27 @@ func Flatten(s Stream) Stream {
   return &flattenStream{stream: s, current: nilS}
 }
 
-// TakeWhile returns a Stream that emits the values in s until f is false. 
-// When end of returned Stream is reached, it automatically closes s if
-// s is not exhausted. Calling Close on returned Stream closes s. f is a
-// Filterer of T; s is a Stream of T.
+// TakeWhile returns a Stream that emits the values in s until the Filter
+// method of f returns Skipped. The returned Stream's Next method reports
+// any errors besides Skipped that the Filter method of f returns. When
+// end of returned Stream is reached, it automatically closes s if s is
+// not exhausted. Calling Close on returned Stream closes s.
+// f is a Filterer of T; s is a Stream of T.
 func TakeWhile(f Filterer, s Stream) Stream {
   return &takeStream{Stream: s, f: f}
 }
 
 // DropWhile returns a Stream that emits the values in s starting at the
-// first value where f is false. Calling Close on returned Stream closes s.
-// f is a Filterer of T; s is a Stream of T.
+// first value where the Filter method of f returns Skipped. The returned
+// Stream's Next method reports any errors that the Filter method of f
+// returns until it returns Skipped. Calling Close on returned Stream
+// closes s. f is a Filterer of T; s is a Stream of T.
 func DropWhile(f Filterer, s Stream) Stream {
   return &dropStream{Stream: s, f: f}
 }
 
-// Any returns a Filterer that returns true if any of the
-// fs return true.
+// Any returns a Filterer that returns Skipped if all of the fs return
+// Skipped. Otherwise it returns nil or the first error not equal to Skipped.
 func Any(fs ...Filterer) Filterer {
   if len(fs) == 0 {
     return falseFilterer
@@ -271,8 +278,8 @@ func Any(fs ...Filterer) Filterer {
   return orFilterer(filterFlatten(ors))
 }
 
-// All returns a Filterer that returns true if all of the
-// fs return true.
+// All returns a Filterer that returns nil if all of the
+// fs return nil. Otherwise it returns the first error encountered.
 func All(fs ...Filterer) Filterer {
   if len(fs) == 0 {
     return trueFilterer
@@ -314,16 +321,18 @@ func FastCompose(f Mapper, g Mapper, ptr interface{}) Mapper {
   return &fastCompositeMapper{mappers, ptrs}
 }
 
-// NewFilterer returns a new Filterer of T. f takes a *T returning true
-// if T value pointed to it should be included.
-func NewFilterer(f func(ptr interface{}) bool) Filterer {
+// NewFilterer returns a new Filterer of T. f takes a *T returning nil
+// if T value pointed to it should be included or Skipped if it should not
+// be included. f can return other errors too.
+func NewFilterer(f func(ptr interface{}) error) Filterer {
   return funcFilterer(f)
 }
 
 // NewMapper returns a new Mapper mapping T values to U Values. In f,
 // srcPtr is a *T and destPtr is a *U pointing to pre-allocated T and U
-// values respectively.
-func NewMapper(m func(srcPtr interface{}, destPtr interface{}) bool) Mapper {
+// values respectively. f returns Skipped if mapped value should be
+// skipped. f can also return other errors.
+func NewMapper(m func(srcPtr interface{}, destPtr interface{}) error) Mapper {
   return funcMapper(m)
 }
 
@@ -352,8 +361,8 @@ type mapStream struct {
 func (s *mapStream) Next(ptr interface{}) error {
   err := s.Stream.Next(s.ptr)
   for ; err == nil; err = s.Stream.Next(s.ptr) {
-    if s.mapper.Map(s.ptr, ptr) {
-      return nil
+    if err = s.mapper.Map(s.ptr, ptr); err != Skipped {
+      return err
     }
   }
   return err
@@ -373,8 +382,8 @@ func (s nilStream) Close() error {
 type nilMapper struct {
 }
 
-func (m nilMapper) Map(srcPtr, destPtr interface{}) bool {
-  return false
+func (m nilMapper) Map(srcPtr, destPtr interface{}) error {
+  return Skipped
 }
 
 type filterStream struct {
@@ -385,8 +394,8 @@ type filterStream struct {
 func (s *filterStream) Next(ptr interface{}) error {
   err := s.Stream.Next(ptr)
   for ; err == nil; err = s.Stream.Next(ptr) {
-    if s.filterer.Filter(ptr) {
-      return nil
+    if ferr := s.filterer.Filter(ptr); ferr != Skipped {
+      return ferr
     }
   }
   return err
@@ -624,8 +633,8 @@ func (s *takeStream) Next(ptr interface{}) error {
   if err != nil {
     return err
   }
-  if s.f.Filter(ptr) {
-    return nil
+  if ferr := s.f.Filter(ptr); ferr != Skipped {
+    return ferr
   }
   s.f = nil
   return finish(s.Close())
@@ -642,45 +651,49 @@ func (s *dropStream) Next(ptr interface{}) error {
     return err
   }
   for ; err == nil; err = s.Stream.Next(ptr) {
-    if !s.f.Filter(ptr) {
+    ferr := s.f.Filter(ptr)
+    if ferr == Skipped {
       s.f = nil
       return nil
+    }
+    if ferr != nil {
+      return ferr
     }
   }
   return err
 }
   
-type funcFilterer func(ptr interface{}) bool
+type funcFilterer func(ptr interface{}) error
 
-func (f funcFilterer) Filter(ptr interface{}) bool {
+func (f funcFilterer) Filter(ptr interface{}) error {
   return f(ptr)
 }
 
 type andFilterer []Filterer
 
-func (f andFilterer) Filter(ptr interface{}) bool {
+func (f andFilterer) Filter(ptr interface{}) error {
   for i := range f {
-    if !f[i].Filter(ptr) {
-      return false
+    if err := f[i].Filter(ptr); err != nil {
+      return err
     }
   }
-  return true
+  return nil
 }
 
 type orFilterer []Filterer
 
-func (f orFilterer) Filter(ptr interface{}) bool {
+func (f orFilterer) Filter(ptr interface{}) error {
   for i := range f {
-    if f[i].Filter(ptr) {
-      return true
+    if err := f[i].Filter(ptr); err != Skipped {
+      return err
     }
   }
-  return false
+  return Skipped
 }
 
-type funcMapper func(srcPtr interface{}, destPtr interface{}) bool
+type funcMapper func(srcPtr interface{}, destPtr interface{}) error
 
-func (m funcMapper) Map(srcPtr interface{}, destPtr interface{}) bool {
+func (m funcMapper) Map(srcPtr interface{}, destPtr interface{}) error {
   return m(srcPtr, destPtr)
 }
 
@@ -689,20 +702,20 @@ type fastCompositeMapper struct {
   ptrs []interface{}
 }
 
-func (m *fastCompositeMapper) Map(srcPtr interface{}, destPtr interface{}) bool {
+func (m *fastCompositeMapper) Map(srcPtr interface{}, destPtr interface{}) error {
   num := len(m.mappers)
-  if !m.mappers[0].Map(srcPtr, m.ptrs[0]) {
-    return false
+  if err := m.mappers[0].Map(srcPtr, m.ptrs[0]); err != nil {
+    return err
   }
   for i := 1; i < num - 1; i++ {
-    if !m.mappers[i].Map(m.ptrs[i-1], m.ptrs[i]) {
-      return false
+    if err := m.mappers[i].Map(m.ptrs[i-1], m.ptrs[i]); err != nil {
+      return err
     }
   }
-  if !m.mappers[num - 1].Map(m.ptrs[num - 2], destPtr) {
-    return false
+  if err := m.mappers[num - 1].Map(m.ptrs[num - 2], destPtr); err != nil {
+    return err
   }
-  return true
+  return nil
 }
 
 type compositeMapperPayload struct {

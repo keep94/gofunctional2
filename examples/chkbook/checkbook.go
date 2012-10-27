@@ -87,11 +87,11 @@ type BalanceFilterer struct {
   Balance int64
 }
 
-func (b *BalanceFilterer) Filter(ptr interface{}) bool {
+func (b *BalanceFilterer) Filter(ptr interface{}) error {
   p := ptr.(*Entry)
   p.Balance = b.Balance
   b.Balance += p.Amount
-  return true
+  return nil
 }
 
 // Printer prints entries to stdout

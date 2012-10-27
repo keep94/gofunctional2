@@ -11,41 +11,52 @@ import (
 var (
   scanError = errors.New("error scanning.")
   closeError = errors.New("error closing.")
+  filterError = errors.New("filter error.")
+  mapError = errors.New("map error.")
   alreadyClosedError = errors.New("already closed.")
+  includeFilterer = errorFilterer{nil}
+  skipFilterer = errorFilterer{Skipped}
+  errFilterer = errorFilterer{filterError}
+  idMapper = errorMapper{nil}
+  skipMapper = errorMapper{Skipped}
+  errMapper = errorMapper{mapError}
   int64Plus1 = NewMapper(
-      func (srcPtr interface{}, destPtr interface{}) bool {
+      func (srcPtr interface{}, destPtr interface{}) error {
         p := srcPtr.(*int64)
         q := destPtr.(*int64)
         *q = (*p) + 1
-        return true
+        return nil
       })
   doubleInt32Int64 = NewMapper(
-      func (srcPtr interface{}, destPtr interface{}) bool {
+      func (srcPtr interface{}, destPtr interface{}) error {
         p := srcPtr.(*int32)
         q := destPtr.(*int64)
         *q = 2 * int64(*p)
-        return true
+        return nil
       })
   squareIntInt32 = NewMapper(
-      func (srcPtr interface{}, destPtr interface{}) bool {
+      func (srcPtr interface{}, destPtr interface{}) error {
         p := srcPtr.(*int)
         q := destPtr.(*int32)
         *q = int32(*p) * int32(*p)
-        return true
+        return nil
   })
 )
 
 func TestFilterAndMap(t *testing.T) {
   s := xrange(5, 15)
-  f := NewFilterer(func(ptr interface{}) bool {
+  f := NewFilterer(func(ptr interface{}) error {
     p := ptr.(*int)
-    return *p % 2 == 0
+    if *p % 2 == 0 {
+      return nil
+    }
+    return Skipped
   })
-  m := NewMapper(func(srcPtr interface{}, destPtr interface{}) bool {
+  m := NewMapper(func(srcPtr interface{}, destPtr interface{}) error {
     s := srcPtr.(*int)
     d := destPtr.(*int32)
     *d = int32((*s) * (*s))
-    return true
+    return nil
   })
   stream := Map(m, Filter(f, s), new(int))
   results, err := toInt32Array(stream)
@@ -57,14 +68,14 @@ func TestFilterAndMap(t *testing.T) {
 
 func TestCombineFilterMap(t *testing.T) {
   s := xrange(5, 15)
-  m := NewMapper(func(srcPtr interface{}, destPtr interface{}) bool {
+  m := NewMapper(func(srcPtr interface{}, destPtr interface{}) error {
     s := srcPtr.(*int)
     d := destPtr.(*int32)
     if *s % 2 != 0 {
-      return false
+      return Skipped
     }
     *d = int32((*s) * (*s))
-    return true
+    return nil
   })
   stream := Map(doubleInt32Int64, Map(m, s, new(int)), new(int32))
   results, err := toInt64Array(stream)
@@ -121,7 +132,7 @@ func TestNestedMapWithCompositeMapper(t *testing.T) {
   ms := stream.(*mapStream)
   _, ok := ms.mapper.(*fastCompositeMapper)
   if !ok {
-    t.Error("Nested Mappes Stream does not contain a fast composite mapper")
+    t.Error("Nested Mapper Stream does not contain a fast composite mapper")
   }
   results, err := toInt64Array(stream)
   if output := fmt.Sprintf("%v", results); output != "[18 32 50]"  {
@@ -636,6 +647,17 @@ func TestTakeWhileAll(t *testing.T) {
   verifyDone(t, stream, new(int), err)
 }
 
+func TestTakeWhileError(t *testing.T) {
+  s := xrange(0, 1)
+  stream := TakeWhile(errFilterer, s)
+  if output := stream.Next(new(int)); output != filterError {
+    t.Errorf("Expected filterError, got %v", output)
+  }
+  if output := stream.Next(new(int)); output != Done {
+    t.Errorf("Expected Done, got %v", output)
+  }
+}
+
 func TestTakeWhileSome(t *testing.T) {
   s := streamCloseChecker{xrange(0, 5), &simpleCloseChecker{}}
   stream := TakeWhile(notEqual(2), s)
@@ -675,6 +697,17 @@ func TestDropWhileAll(t *testing.T) {
   verifyDone(t, stream, new(int), err)
 }
 
+func TestDropWhileError(t *testing.T) {
+  s := xrange(0, 1)
+  stream := DropWhile(errFilterer, s)
+  if output := stream.Next(new(int)); output != filterError {
+    t.Errorf("Expected filterError, got %v", output)
+  }
+  if output := stream.Next(new(int)); output != Done {
+    t.Errorf("Expected Done, got %v", output)
+  }
+}
+
 func TestDropWhileSome(t *testing.T) {
   s := xrange(0, 5)
   stream := DropWhile(notEqual(2), s)
@@ -692,15 +725,15 @@ func TestAny(t *testing.T) {
   d := equal(4)
   e := Any(a, b, c, d)
   for i := 1; i <= 4; i++ {
-    if !e.Filter(ptrInt(i)) {
-      t.Error("Call to Any failed")
+    if output := e.Filter(ptrInt(i)); output != nil {
+      t.Errorf("Expected nil, got %v", output)
     }
   }
-  if e.Filter(ptrInt(0)) {
-    t.Error("Call to Any failed")
+  if output := e.Filter(ptrInt(0)); output != Skipped {
+    t.Errorf("Expected Skipped, got %v", output)
   }
   if x := len(e.(orFilterer)); x != 4 {
-    t.Errorf("Expected length of or filter to be 4, got %v", x)
+    t.Errorf("Expected 4, got %v", x)
   }
 }
 
@@ -711,16 +744,36 @@ func TestAll(t *testing.T) {
   d := notEqual(4)
   e := All(a, b, c, d)
   for i := 1; i <= 4; i++ {
-    if e.Filter(ptrInt(i)) {
-      t.Error("Call to All failed")
+    if output := e.Filter(ptrInt(i)); output != Skipped {
+      t.Errorf("Expected Skipped, got %v", output)
     }
   }
-  if !e.Filter(ptrInt(0)) {
-    t.Error("Call to All failed")
+  if output := e.Filter(ptrInt(0)); output != nil {
+    t.Errorf("Expected nil, got %v", output)
   }
   if x := len(e.(andFilterer)); x != 4 {
-    t.Errorf("Expected length of and filter to be 4, got %v", x)
+    t.Errorf("Expected 4, got %v", x)
   }
+}
+
+func TestAllWithFilter(t *testing.T) {
+  verifyAllWithFilterer(t, skipFilterer, errFilterer, Skipped, Done)
+  verifyAllWithFilterer(t, errFilterer, skipFilterer, filterError, filterError)
+  verifyAllWithFilterer(t, includeFilterer, errFilterer, filterError, filterError)
+  verifyAllWithFilterer(t, errFilterer, includeFilterer, filterError, filterError)
+  verifyAllWithFilterer(t, skipFilterer, includeFilterer, Skipped, Done)
+  verifyAllWithFilterer(t, includeFilterer, skipFilterer, Skipped, Done)
+  verifyAllWithFilterer(t, includeFilterer, includeFilterer, nil, nil)
+}
+
+func TestAllWithMapper(t *testing.T) {
+  verifyAllWithMapper(t, skipMapper, errMapper, Skipped, Done)
+  verifyAllWithMapper(t, errMapper, skipMapper, mapError, mapError)
+  verifyAllWithMapper(t, idMapper, errMapper, mapError, mapError)
+  verifyAllWithMapper(t, errMapper, idMapper, mapError, mapError)
+  verifyAllWithMapper(t, skipMapper, idMapper, Skipped, Done)
+  verifyAllWithMapper(t, idMapper, skipMapper, Skipped, Done)
+  verifyAllWithMapper(t, idMapper, idMapper, nil, nil)
 }
 
 func TestAllAnyComposition(t *testing.T) {
@@ -728,7 +781,7 @@ func TestAllAnyComposition(t *testing.T) {
     Any(equal(1), equal(2), equal(3)),
     Any(equal(4)))
   if x := len(a.(andFilterer)); x != 2 {
-    t.Errorf("Expected length of and filter to be 2, got %v", x)
+    t.Errorf("Expected 2, got %v", x)
   }
 }
 
@@ -737,21 +790,21 @@ func TestAnyAllComposition(t *testing.T) {
     All(equal(1), equal(2), equal(3)),
     All(equal(4)))
   if x := len(a.(orFilterer)); x != 2 {
-    t.Errorf("Expected length of or filter to be 2, got %v", x)
+    t.Errorf("Expected 2, got %v", x)
   }
 }
 
 func TestEmptyAny(t *testing.T) {
   a := Any()
-  if a.Filter(ptrInt(0)) {
-    t.Error("Empty Any failed.")
+  if output := a.Filter(ptrInt(0)); output != Skipped {
+    t.Errorf("Expected Skipped, got %v", output)
   }
 }
   
 func TestEmptyAll(t *testing.T) {
   a := All()
-  if !a.Filter(ptrInt(0)) {
-    t.Error("Empty All failed.")
+  if output := a.Filter(ptrInt(0)); output != nil {
+    t.Errorf("Expected nil, got %v", output)
   }
 }
 
@@ -762,32 +815,32 @@ func TestCompose(t *testing.T) {
   c := Compose(g, f, func() interface{} { return new(int32)})
   c = Compose(h, c, func() interface{} { return new(int64)})
   if x := len(c.mappers()); x != 3 {
-    t.Error("Composition of composite mapper wrong.")
+    t.Errorf("Expected 3, got %v", x)
   }
   var result int64
-  if !c.Map(ptrInt(5), &result) {
-    t.Error("Map returns false instead of true.")
+  if output := c.Map(ptrInt(5), &result); output != nil {
+    t.Errorf("Expected nil, got %v", output)
   }
   if result != 51 {
-    t.Error("Map returned wrong value.")
+    t.Errorf("Expected 51, got %v", result)
   }
   var fastResult int64
-  if !c.Fast().Map(ptrInt(5), &fastResult) {
-    t.Error("Map returns false instead of true.")
+  if output := c.Fast().Map(ptrInt(5), &fastResult); output != nil {
+    t.Errorf("Expected nil, got %v", output)
   }
   if fastResult != 51 {
-    t.Error("Map returned wrong value.")
+    t.Errorf("Expected 51, got %v", fastResult)
   }
 }  
 
 func TestCompositeMapperZero(t *testing.T) {
   c := CompositeMapper{}
   var x, y int
-  if c.Map(&x, &y) {
-    t.Error("Map on zero CompositeMapper should always return false.")
+  if output := c.Map(&x, &y); output != Skipped {
+    t.Errorf("Expected Skipped, got %v", output)
   }
-  if c.Fast().Map(&x, &y) {
-    t.Error("Calling Fast().Map on zero CompositeMapper should always return false.")
+  if output := c.Fast().Map(&x, &y); output != Skipped {
+    t.Errorf("Expected Skipped, got %v", output)
   }
 }
 
@@ -795,18 +848,18 @@ func TestComposeWithZero(t *testing.T) {
   f := squareIntInt32
   c := Compose(f, CompositeMapper{}, func() interface{} { return new(int)})
   if x := len(c.mappers()); x != 3 {
-    t.Error("Composition of composite mapper wrong.")
+    t.Errorf("Expected 3, got %v", x)
   }
   var result int32
-  if c.Map(ptrInt(5), &result) {
-    t.Error("Map should return false instead of true.")
+  if output := c.Map(ptrInt(5), &result); output != Skipped {
+    t.Errorf("Expected Skipped, got %v", output)
   }
   c = Compose(CompositeMapper{}, f, func() interface{} { return new(int32)})
   if x := len(c.mappers()); x != 3 {
-    t.Error("Composition of composite mapper wrong.")
+    t.Errorf("Expected 3, got %v", x)
   }
-  if c.Map(ptrInt(5), &result) {
-    t.Error("Map should return false instead of true.")
+  if output := c.Map(ptrInt(5), &result); output != Skipped {
+    t.Errorf("Expected Skipped, got %v", output)
   }
 }
 
@@ -817,14 +870,14 @@ func TestFastCompose(t *testing.T) {
   c := FastCompose(g, f, new(int32))
   c = FastCompose(h, c, new(int64))
   if x := len(c.(*fastCompositeMapper).mappers); x != 3 {
-    t.Error("Composition of fast composite mapper wrong.")
+    t.Errorf("Expected 3, got %v", x)
   }
   var result int64
-  if !c.Map(ptrInt(5), &result) {
-    t.Error("Map returns false instead of true.")
+  if output := c.Map(ptrInt(5), &result); output != nil {
+    t.Errorf("Expected nil, got %v", output)
   }
   if result != 51 {
-    t.Error("Map returned wrong value.")
+    t.Errorf("Expected 51, got %v", result)
   }
 }
 
@@ -832,18 +885,18 @@ func TestFastComposeWithZero(t *testing.T) {
   f := squareIntInt32
   c := FastCompose(f, CompositeMapper{}, new(int))
   if x := len(c.(*fastCompositeMapper).mappers); x != 3 {
-    t.Error("Composition of fast composite mapper wrong.")
+    t.Errorf("Expected 3, got %v", x)
   }
   var result int32
-  if c.Map(ptrInt(5), &result) {
-    t.Error("Map should return false instead of true.")
+  if output := c.Map(ptrInt(5), &result); output != Skipped {
+    t.Errorf("Expected Skipped, got %v", output)
   }
   c = FastCompose(CompositeMapper{}, f, new(int32))
   if x := len(c.(*fastCompositeMapper).mappers); x != 3 {
-    t.Error("Composition of fast composite mapper wrong.")
+    t.Errorf("Expected 3, got %v", x)
   }
-  if c.Map(ptrInt(5), &result) {
-    t.Error("Map should return false instead of true.")
+  if output := c.Map(ptrInt(5), &result); output != Skipped {
+    t.Errorf("Expected Skipped, got %v", output)
   }
 }
 
@@ -854,14 +907,14 @@ func TestComposeFastCompose(t *testing.T) {
   var c Mapper = Compose(g, f, func() interface{} { return new(int32) })
   c = FastCompose(h, c, new(int64))
   if x := len(c.(*fastCompositeMapper).mappers); x != 3 {
-    t.Error("Composition of fast composite mapper wrong.")
+    t.Errorf("Expected 3, got %v", x)
   }
   var result int64
-  if !c.Map(ptrInt(5), &result) {
-    t.Error("Map returns false instead of true.")
+  if output := c.Map(ptrInt(5), &result); output != nil {
+    t.Errorf("Expected nil, got %v", output)
   }
   if result != 51 {
-    t.Error("Map returned wrong value.")
+    t.Errorf("Expected 51, got %v", result)
   }
 }
 
@@ -895,6 +948,30 @@ func verifyDone(t *testing.T, s Stream, ptr interface{}, err error) {
   if output := s.Close(); output != nil {
     t.Errorf("Expected nil when closing Done stream, got %v", output)
   }
+}
+
+func verifyAllWithFilterer(t *testing.T, first Filterer, second Filterer, allError error, streamError error) {
+  f := All(first, second)
+  stream := Filter(second, Filter(first, NewStreamFromValues([]int {0}, nil)))
+  if output := f.Filter(ptrInt(0)); output != allError {
+    t.Errorf("Expected %v got %v", allError, output)
+  }
+  if output := stream.Next(new(int)); output != streamError {
+    t.Errorf("Expected %v got %v", streamError, output)
+  }
+  stream.Close()
+}
+
+func verifyAllWithMapper(t *testing.T, first Mapper, second Mapper, allError error, streamError error) {
+  m := FastCompose(second, first, new(int))
+  stream := Map(second, Map(first, NewStreamFromValues([]int {0}, nil), new(int)), new(int))
+  if output := m.Map(ptrInt(0), new(int)); output != allError {
+    t.Errorf("Expected %v got %v", allError, output)
+  }
+  if output := stream.Next(new(int)); output != streamError {
+    t.Errorf("Expected %v got %v", streamError, output)
+  }
+  stream.Close()
 }
 
 type intAndString struct {
@@ -996,6 +1073,22 @@ func (c *noDupCloseChecker) closeCalled() bool {
   return c.closeCount > 0
 }
 
+type errorFilterer struct {
+  e error
+}
+
+func (f errorFilterer) Filter(ptr interface{}) error {
+  return f.e
+}
+
+type errorMapper struct {
+  e error
+}
+
+func (m errorMapper) Map(srcPtr, destPtr interface{}) error {
+  return m.e
+}
+
 // getNthDigit returns the nth digit in the sequence:
 // 12345678910111213141516... getNthDigit(1) == 1.
 func getNthDigit(x int) int {
@@ -1019,7 +1112,7 @@ type intToDigitsMapper struct {
 
 // Map maps 123 -> {1, 2, 3}. Resulting Stream is valid until the next call
 // to Map.
-func (m *intToDigitsMapper) Map(srcPtr, destPtr interface{}) bool {
+func (m *intToDigitsMapper) Map(srcPtr, destPtr interface{}) error {
   x := *(srcPtr.(*int))
   result := destPtr.(*Stream)
   m.digits = m.digits[:0]
@@ -1033,7 +1126,7 @@ func (m *intToDigitsMapper) Map(srcPtr, destPtr interface{}) bool {
     m.digits[len(m.digits) - i - 1] = temp
   }
   *result = NewStreamFromValues(m.digits, nil)
-  return true
+  return nil
 }
 
 func squareIntCopier(src interface{}, dest interface{}) {
@@ -1047,33 +1140,45 @@ func xrange(start, end int) Stream {
 }
 
 func lessThan(x int) Filterer {
-  return NewFilterer(func(ptr interface{}) bool {
+  return NewFilterer(func(ptr interface{}) error {
     p := ptr.(*int)
-    return *p < x
+    if *p < x {
+      return nil
+    }
+    return Skipped
   })
 }
 
 func greaterThan(x int) Filterer {
-  return NewFilterer(func(ptr interface{}) bool {
+  return NewFilterer(func(ptr interface{}) error {
     p := ptr.(*int)
-    return *p > x
+    if *p > x {
+      return nil
+    }
+    return Skipped
   })
 }
 
 func notEqual(x int) Filterer {
-  return NewFilterer(func(ptr interface{}) bool {
+  return NewFilterer(func(ptr interface{}) error {
     p := ptr.(*int)
-    return *p != x
+    if *p != x {
+      return nil
+    }
+    return Skipped
   })
 }
 
 func equal(x int) Filterer {
-  return NewFilterer(func(ptr interface{}) bool {
+  return NewFilterer(func(ptr interface{}) error {
     p := ptr.(*int)
-    return *p == x
+    if *p == x {
+      return nil
+    }
+    return Skipped
   })
 }
-  
+
 func ptrInt(x int) *int {
   return &x
 }
