@@ -64,9 +64,11 @@ type Mapper interface {
 }
 
 // CompositeMapper represents Mappers composed together e.g f(g(x)).
-// A CompositeMapper is thread-safe if its underlying Mappers are thread-safe.
-// The zero value for CompositeMapper is a Mapper that maps nothing
-// (the Map method always returns Skipped).
+// Programs using CompositeMapper should typically store and pass them as
+// values, not pointers. A CompositeMapper can be used by multiple goroutines
+// simultaneously if its underlying Mappers can be used by multiple goroutines
+// simultaneously. The zero value for CompositeMapper is a Mapper that maps
+// nothing (the Map method always returns Skipped).
 type CompositeMapper struct {
   _pieces []compositeMapperPiece
 }
@@ -75,8 +77,8 @@ func (c CompositeMapper) Map(srcPtr interface{}, destPtr interface{}) error {
   return c.Fast().Map(srcPtr, destPtr)
 }
 
-// Fast returns a thread unsafe version of this CompositeMapper as if
-// FastCompose were used.
+// Fast returns a quicker version of this CompositeMapper that cannot be
+// used by multiple goroutines simultaneously as if FastCompose were used.
 func (c CompositeMapper) Fast() Mapper {
   pieces := c.pieces()
   fastPieces := make([]fastMapperPiece, len(pieces))
@@ -302,8 +304,8 @@ func Compose(f Mapper, g Mapper, c Creater) CompositeMapper {
 // FastCompose works like Compose except that it uses a *U value instead of
 // a Creater of U to link f ang g. ptr is the *U value. Intermediate results
 // from g are stored at ptr. Unlike Compose, the Mapper that FastCompose
-// returns is never thread-safe since what ptr points to changes with
-// each call to Map.
+// returns cannot be used by multiple goroutines simultaneously since what
+// ptr points to changes with each call to Map.
 func FastCompose(f Mapper, g Mapper, ptr interface{}) Mapper {
   l := mapperLen(f) + mapperLen(g)
   pieces := make([]fastMapperPiece, l)
