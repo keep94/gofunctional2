@@ -6,8 +6,8 @@ the methods found in the python itertools module. This is version 2 of
 gofunctional.
 
 This API is now stable. Any future changes will be backward compatible with
-existing code. However, any future functions and data structures in "draft"
-mode may change in incompatible ways. Such functions and data structures will
+existing code. However, any future function or data structure in "draft"
+mode may change in incompatible ways. Such function or data structure will
 be clearly marked as "draft" in the documentation.
 
 ## Using
