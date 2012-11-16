@@ -5,6 +5,11 @@ a python iterator or generator. The methods found in here are similar to
 the methods found in the python itertools module. This is version 2 of
 gofunctional.
 
+This API is now stable. Any future changes will be backward compatible with
+existing code. However, any future functions and data structures in "draft"
+mode may change in incompatible ways. Such functions and data structures will
+be clearly marked as "draft" in the documentation.
+
 ## Using
 
 	import "github.com/keep94/gofunctional2/functional"
