@@ -20,7 +20,7 @@ be clearly marked as "draft" in the documentation.
 
 ## Online Documentation
 
-        Online documentation is available [here](http://go.pkgdoc.org/github.com/keep94/gofunctional2/functional)
+Online documentation is available [here](http://go.pkgdoc.org/github.com/keep94/gofunctional2/functional)
 
 ## Real World Example
 
