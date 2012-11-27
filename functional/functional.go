@@ -388,8 +388,8 @@ type filterStream struct {
 func (s *filterStream) Next(ptr interface{}) error {
   err := s.Stream.Next(ptr)
   for ; err == nil; err = s.Stream.Next(ptr) {
-    if ferr := s.filterer.Filter(ptr); ferr != Skipped {
-      return ferr
+    if err = s.filterer.Filter(ptr); err != Skipped {
+      return err
     }
   }
   return err

@@ -18,6 +18,10 @@ be clearly marked as "draft" in the documentation.
 
 	go get github.com/keep94/gofunctional2
 
+## Online Documentation
+
+        Online documentation is available [here](http://go.pkgdoc.org/github.com/keep94/gofunctional2/functional)
+
 ## Real World Example
 
 Suppose there are names and phone numbers of people stored in a sqlite
