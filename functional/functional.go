@@ -212,6 +212,9 @@ func Cycle(f func() Stream) Stream {
 // Calling Close on returned Stream closes all underlying streams.
 // If caller passes a slice to Concat, no copy is made of it.
 func Concat(s ...Stream) Stream {
+  if len(s) == 0 {
+    return nilS
+  }
   return &concatStream{s: s}
 }
 
@@ -220,6 +223,9 @@ func Concat(s ...Stream) Stream {
 // Calling Close on returned Stream does nothing.
 func NewStreamFromValues(aSlice interface{}, c Copier) Stream {
   sliceValue := getSliceValue(aSlice)
+  if sliceValue.Len() == 0 {
+    return nilS
+  }
   return &plainStream{sliceValue: sliceValue, copyFunc: toSliceValueCopier(c)}
 }
 
@@ -228,6 +234,9 @@ func NewStreamFromValues(aSlice interface{}, c Copier) Stream {
 // Calling Close on returned Stream does nothing.
 func NewStreamFromPtrs(aSlice interface{}, c Copier) Stream {
   sliceValue := getSliceValue(aSlice)
+  if sliceValue.Len() == 0 {
+    return nilS
+  }
   valueCopierFunc := toSliceValueCopier(c)
   copyFunc := func(src reflect.Value, dest interface{}) {
     valueCopierFunc(reflect.Indirect(src), dest)

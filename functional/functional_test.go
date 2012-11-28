@@ -394,7 +394,10 @@ func TestReadLinesManualCloseNoImplCloser(t *testing.T) {
 
 func TestNilStream(t *testing.T) {
   stream := NilStream()
-  _, err := toIntArray(stream)
+  results, err := toIntArray(stream)
+  if output := fmt.Sprintf("%v", results); output != "[]" {
+    t.Errorf("Expected [] got %v", output)
+  }
   verifyDone(t, stream, new(int), err)
 }
 
@@ -418,11 +421,9 @@ func TestConcat2(t *testing.T) {
 
 func TestConcatEmpty(t *testing.T) {
   stream := Concat()
-  results, err := toIntArray(stream)
-  if output := fmt.Sprintf("%v", results); output != "[]"  {
-    t.Errorf("Expected [] got %v", output)
+  if stream != NilStream() {
+    t.Error("Did not get the nil stream.")
   }
-  verifyDone(t, stream, new(int), err)
 }
 
 func TestConcatAllEmptyStreams(t *testing.T) {
@@ -523,11 +524,9 @@ func TestNewStreamFromValuesWithCopier(t *testing.T) {
 
 func TestNewStreamFromValuesEmpty(t *testing.T) {
   stream := NewStreamFromValues([]int{}, nil)
-  results, err := toIntArray(stream)
-  if output := fmt.Sprintf("%v", results); output != "[]"  {
-    t.Errorf("Expected [] got %v", output)
+  if stream != NilStream() {
+    t.Error("Did not get the nil stream.")
   }
-  verifyDone(t, stream, new(int), err)
 }
   
 func TestNewStreamFromPtrs(t *testing.T) {
@@ -548,6 +547,13 @@ func TestNewStreamFromPtrsWithCopier(t *testing.T) {
   verifyDone(t, stream, new(int), err)
 }
 
+func TestNewStreamFromPtrsEmpty(t *testing.T) {
+  stream := NewStreamFromPtrs([]*int{}, nil)
+  if stream != NilStream() {
+    t.Error("Did not get the nil stream.")
+  }
+}
+  
 func TestFlatten(t *testing.T) {
   if result := getNthDigit(15); result != 2 {
     t.Errorf("Expected 2 got %v", result)
