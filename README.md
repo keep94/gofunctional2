@@ -13,14 +13,16 @@ be clearly marked as "draft" in the documentation.
 ## Using
 
 	import "github.com/keep94/gofunctional2/functional"
+	import "github.com/keep94/gofunctional2/consume"
 
 ## Installing
 
-	go get github.com/keep94/gofunctional2
+	go get github.com/keep94/gofunctional2/functional
+	go get github.com/keep94/gofunctional2/consume
 
 ## Online Documentation
 
-Online documentation is available [here](http://go.pkgdoc.org/github.com/keep94/gofunctional2/functional).
+Online documentation is available [here](http://go.pkgdoc.org/github.com/keep94/gofunctional2).
 
 ## Real World Example
 
