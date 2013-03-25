@@ -54,6 +54,7 @@ func Modify(
 // the Stream is exhaused.
 type Buffer struct {
   buffer reflect.Value
+  addrFunc func(reflect.Value) interface{}
   err error
   idx int
 }
@@ -64,13 +65,24 @@ func NewBuffer(aSlice interface{}) *Buffer {
   if value.Kind() != reflect.Slice {
     panic("NewBuffer expects a slice.")
   }
-  return &Buffer{buffer: value}
+  return &Buffer{buffer: value, addrFunc: forValue}
+}
+
+// NewPtrBuffer creates a new Buffer. aSlice is a []*T used to store values.
+// Each pointer in aSlice should be non-nil.
+func NewPtrBuffer(aSlice interface{}) *Buffer {
+  value := reflect.ValueOf(aSlice)
+  if value.Kind() != reflect.Slice {
+    panic("NewBuffer expects a slice.")
+  }
+  return &Buffer{buffer: value, addrFunc: forPtr}
 }
 
 // Values returns the values gathered from the last Consume call. The number of
 // values gathered will not exceed the length of the original slice passed
-// to NewBuffer. Returned value is a []T. It remains valid until the
-// next call to Consume.
+// to NewBuffer. Returned value is a []T or []*T depending on whether
+// NewBuffer or NewPtrBuffer was used to create this instance. Returned
+// value remains valid until the next call to Consume.
 func (b *Buffer) Values() interface{} {
   return b.buffer.Slice(0, b.idx).Interface()
 }
@@ -80,7 +92,7 @@ func (b *Buffer) Error() error {
   return b.err
 }
 
-// Consume fetches the entries.
+// Consume fetches the entries. s is a Stream of T.
 func (b *Buffer) Consume(s functional.Stream) {
   b.consume(s)
   if b.err == functional.Done {
@@ -94,7 +106,7 @@ func (b *Buffer) consume(s functional.Stream) {
   l := b.buffer.Len()
   b.err = nil
   for b.idx = 0; b.idx < l; b.idx++ {
-    b.err = s.Next(b.buffer.Index(b.idx).Addr().Interface())
+    b.err = s.Next(b.addrFunc(b.buffer.Index(b.idx)))
     if b.err != nil {
       break
     }
@@ -104,6 +116,7 @@ func (b *Buffer) consume(s functional.Stream) {
 // PageBuffer reads a page of T values from a stream of T.
 type PageBuffer struct {
   buffers [2]Buffer
+  addrFunc func(value reflect.Value) interface{}
   desired_page_no int
   page_no int
   is_end bool
@@ -114,6 +127,21 @@ type PageBuffer struct {
 // desiredPageNo is the desired 0-based page number. NewPageBuffer panics
 // if the length of aSlice is odd.
 func NewPageBuffer(aSlice interface{}, desiredPageNo int) *PageBuffer {
+  return newPageBuffer(aSlice, desiredPageNo, forValue)
+}
+
+// NewPtrPageBuffer returns a new PageBuffer instance.
+// aSlice is a []*T whose length is double that of each page;
+// desiredPageNo is the desired 0-based page number. NewPageBuffer panics
+// if the length of aSlice is odd. Each element of aSlice should be non-nil.
+func NewPtrPageBuffer(aSlice interface{}, desiredPageNo int) *PageBuffer {
+  return newPageBuffer(aSlice, desiredPageNo, forPtr)
+}
+
+func newPageBuffer(
+    aSlice interface{},
+    desiredPageNo int,
+    addrFunc func(reflect.Value) interface{}) *PageBuffer {
   value := reflect.ValueOf(aSlice)
   if value.Kind() != reflect.Slice {
     panic("NewPageBuffer expects a slice.")
@@ -128,13 +156,15 @@ func NewPageBuffer(aSlice interface{}, desiredPageNo int) *PageBuffer {
   mid := l / 2
   return &PageBuffer{
       buffers: [2]Buffer{
-          {buffer: value.Slice(0, mid)},
-          {buffer: value.Slice(mid, l)}},
+          {buffer: value.Slice(0, mid), addrFunc: addrFunc},
+          {buffer: value.Slice(mid, l), addrFunc: addrFunc}},
+      addrFunc: addrFunc,
       desired_page_no: desiredPageNo}
 }
 
-// Values returns the values of the fetched page as a []T.
-// Returned slice is valid until next call to consume.
+// Values returns the values of the fetched page as a []T or a []*T depending
+// on whether NewPageBuffer or NewPtrPageBuffer was used to create this
+// insstance. Returned slice is valid until next call to consume.
 func (pb *PageBuffer) Values() interface{} {
   return pb.buffers[pb.page_no % 2].Values()
 }
@@ -156,7 +186,7 @@ func (pb *PageBuffer) End() bool {
   return pb.is_end
 }
 
-// Consume fetches the entries.
+// Consume fetches the entries. s is a Stream of T.
 func (pb *PageBuffer) Consume(s functional.Stream) {
   pb.page_no = 0
   pb.is_end = false
@@ -174,7 +204,7 @@ func (pb *PageBuffer) Consume(s functional.Stream) {
     } else if buffer.err != nil || pb.page_no >= pb.desired_page_no {
       // Here we have to test if end is reached
       if buffer.err == nil {
-        pb.is_end = s.Next(pb.buffers[(pb.page_no + 1) %2].buffer.Index(0).Addr().Interface()) == functional.Done
+        pb.is_end = s.Next(pb.addrFunc(pb.buffers[(pb.page_no + 1) %2].buffer.Index(0))) == functional.Done
       }
       s.Close()
       return
@@ -229,4 +259,12 @@ type modifyConsumer struct {
 
 func (c *modifyConsumer) Consume(s functional.Stream) {
   c.ErrorReportingConsumer.Consume(c.f(s))
+}
+
+func forValue(value reflect.Value) interface{} {
+  return value.Addr().Interface()
+}
+
+func forPtr(ptrValue reflect.Value) interface{} {
+  return ptrValue.Interface()
 }

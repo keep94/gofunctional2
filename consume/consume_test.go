@@ -13,6 +13,14 @@ var (
   closeError = errors.New("stream_util: close error.")
 )
 
+func TestPtrBuffer(t *testing.T) {
+  stream := &closeChecker{Stream: functional.Count()}
+  b := newPtrBuffer(5)
+  b.Consume(stream)
+  verifyClosed(t, stream)
+  verifyPtrFetched(t, b, 0, 5)
+}
+
 func TestBufferSameSize(t *testing.T) {
   stream := &closeChecker{Stream: functional.Slice(functional.Count(), 0, 5)}
   b := NewBuffer(make([]int, 5))
@@ -43,6 +51,14 @@ func TestBufferError(t *testing.T) {
   if err := b.Error(); err != otherError {
     t.Errorf("Expected error otherError, got %v", err)
   }
+}
+
+func TestPtrPageBuffer(t *testing.T) {
+  stream := &closeChecker{Stream: functional.Count()}
+  pb := newPtrPageBuffer(6, 0)
+  pb.Consume(stream)
+  verifyClosed(t, stream)
+  verifyPtrPageFetched(t, pb, 0, 3, 0, false)
 }
 
 func TestPageBufferFirstPage(t *testing.T) {
@@ -239,12 +255,34 @@ func verifyFetched(t *testing.T, b *Buffer, start int, end int) {
   verifyValues(t, b.Values().([]int), start, end)
 }
 
+func verifyPtrFetched(t *testing.T, b *Buffer, start int, end int) {
+  if err := b.Error(); err != nil {
+    t.Errorf("Got error fetching values, %v", err)
+    return
+  }
+  verifyPtrValues(t, b.Values().([]*int), start, end)
+}
+
 func verifyPageFetched(t *testing.T, pb *PageBuffer, start int, end int, page_no int, is_end bool) {
   if err := pb.Error(); err != nil {
     t.Errorf("Got error fetching page values, %v", err)
     return
   }
   verifyValues(t, pb.Values().([]int), start, end)
+  if output := pb.PageNo(); output != page_no {
+    t.Errorf("Expected page %v, got %v", page_no, output)
+  }
+  if output := pb.End(); output != is_end {
+    t.Errorf("For end, expected %v, got %v", is_end, output)
+  }
+}
+
+func verifyPtrPageFetched(t *testing.T, pb *PageBuffer, start int, end int, page_no int, is_end bool) {
+  if err := pb.Error(); err != nil {
+    t.Errorf("Got error fetching page values, %v", err)
+    return
+  }
+  verifyPtrValues(t, pb.Values().([]*int), start, end)
   if output := pb.PageNo(); output != page_no {
     t.Errorf("Expected page %v, got %v", page_no, output)
   }
@@ -260,6 +298,18 @@ func verifyValues(t *testing.T, values []int, start int, end int) {
   }
   for i := start; i < end; i++ {
     if output := values[i - start]; output != i {
+      t.Errorf("Expected %v, got %v", i, output)
+    }
+  }
+}
+
+func verifyPtrValues(t *testing.T, values []*int, start int, end int) {
+  if output := len(values); output != end - start {
+    t.Errorf("Expected entry array to be %v, got %v", end - start, output)
+    return
+  }
+  for i := start; i < end; i++ {
+    if output := *values[i - start]; output != i {
       t.Errorf("Expected %v, got %v", i, output)
     }
   }
@@ -315,4 +365,20 @@ type closeErrorStream struct {
 
 func (c closeErrorStream) Close() error {
   return closeError
+}
+
+func newPtrBuffer(size int) *Buffer {
+  array := make([]*int, size)
+  for i := range array {
+    array[i] = new(int)
+  }
+  return NewPtrBuffer(array)
+}
+
+func newPtrPageBuffer(size, desiredPageNo int) *PageBuffer {
+  array := make([]*int, size)
+  for i := range array {
+    array[i] = new(int)
+  }
+  return NewPtrPageBuffer(array, desiredPageNo)
 }
