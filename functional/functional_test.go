@@ -991,6 +991,37 @@ func TestFastComposeCompose(t *testing.T) {
   }
 }
 
+func TestNoCloseStream(t *testing.T) {
+  s := streamCloseChecker{Count(), &simpleCloseChecker{}}
+  stream := Slice(NoCloseStream(s), 0, 3)
+  toIntArray(stream)
+  if s.closeCalled() {
+    t.Error("Did not expect close to be called on underlying stream.")
+  }
+}
+
+func TestNoCloseRows(t *testing.T) {
+  rows := rowsCloseChecker{
+      &fakeRows{ids: []int {}, names: []string{}},
+      &simpleCloseChecker{}}
+  stream := ReadRows(NoCloseRows(rows))
+  toIntAndStringArray(stream)
+  if rows.closeCalled() {
+    t.Error("Expected rows not to be closed.")
+  }
+}
+
+func TestNoCloseReader(t *testing.T) {
+  reader := readerCloseChecker{
+      strings.NewReader(""),
+      &simpleCloseChecker{}}
+  stream := ReadLines(NoCloseReader(reader))
+  toStringArray(stream)
+  if reader.closeCalled() {
+    t.Error("Did not expect close to be called on reader.")
+  }
+}
+
 func verifyDupClose(t *testing.T, c io.Closer) {
   closeVerifyResult(t, c, nil)
   closeVerifyResult(t, c, nil)

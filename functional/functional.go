@@ -324,6 +324,35 @@ func FastCompose(f Mapper, g Mapper, ptr interface{}) Mapper {
   return fastCompositeMapper{pieces}
 }
 
+// NoCloseStream returns a Stream just like s but with a Close method that does
+// nothing. The returnes Stream will still automatically close itself when the
+// end of stream is reached. This function is useful for preventing a stream from
+// automatically closing its underlying stream.
+// This function is draft API and may change in future releases.
+func NoCloseStream(s Stream) Stream {
+  return noCloseStream{s}
+}
+
+// NoCloseRows returns a Rows just like r that does not implement io.Closer.
+// This function is draft API and may change in future releases.
+func NoCloseRows(r Rows) Rows {
+  _, ok := r.(io.Closer)
+  if ok {
+    return rowsWrapper{r}
+  }
+  return r
+}
+
+// NoCloseReader returns an io.Reader just like r that does not implement io.Closer
+// This function is draft API and may change in future releases.
+func NoCloseReader(r io.Reader) io.Reader {
+  _, ok := r.(io.Closer)
+  if ok {
+    return readerWrapper{r}
+  }
+  return r
+}
+
 // NewFilterer returns a new Filterer of T. f takes a *T returning nil
 // if T value pointed to it should be included or Skipped if it should not
 // be included. f can return other errors too.
@@ -749,6 +778,22 @@ func (fmp *fastMapperPiece) setFromCompositePiece(cmp *compositeMapperPiece) {
   } else {
     fmp.ptr = cmp.creater()
   }
+}
+
+type readerWrapper struct {
+  io.Reader
+}
+
+type rowsWrapper struct {
+  Rows
+}
+
+type noCloseStream struct {
+  Stream
+}
+
+func (s noCloseStream) Close() error {
+  return nil
 }
 
 func orList(f Filterer) []Filterer {
