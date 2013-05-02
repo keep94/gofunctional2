@@ -1,3 +1,8 @@
+// Copyright 2013 Travis Keep. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file or
+// at http://opensource.org/licenses/BSD-3-Clause.
+
 // This example is just like power, but does not make recursive calls to
 // functional.NewGenerator. functional.NewGenerator uses channels to simulate
 // the behavior of python generators. While channels are cheap in go, they

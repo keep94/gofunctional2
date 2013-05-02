@@ -1,3 +1,8 @@
+// Copyright 2013 Travis Keep. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file or
+// at http://opensource.org/licenses/BSD-3-Clause.
+
 // Package consume provides useful ways to consume streams. All API in this
 // package is draft API and may change in incompatible ways.
 package consume

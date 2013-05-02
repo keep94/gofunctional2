@@ -1,3 +1,8 @@
+// Copyright 2013 Travis Keep. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file or
+// at http://opensource.org/licenses/BSD-3-Clause.
+
 // This program solves the following puzzle: Find the nth digit of the
 // sequence 12345678910111213141516... To find the 287th digit, run "puzzle 287"
 package main
