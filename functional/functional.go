@@ -333,13 +333,11 @@ func FastCompose(f Mapper, g Mapper, ptr interface{}) Mapper {
 // nothing. The returnes Stream will still automatically close itself when the
 // end of stream is reached. This function is useful for preventing a stream from
 // automatically closing its underlying stream.
-// This function is draft API and may change in future releases.
 func NoCloseStream(s Stream) Stream {
   return noCloseStream{s}
 }
 
 // NoCloseRows returns a Rows just like r that does not implement io.Closer.
-// This function is draft API and may change in future releases.
 func NoCloseRows(r Rows) Rows {
   _, ok := r.(io.Closer)
   if ok {
@@ -348,8 +346,8 @@ func NoCloseRows(r Rows) Rows {
   return r
 }
 
-// NoCloseReader returns an io.Reader just like r that does not implement io.Closer
-// This function is draft API and may change in future releases.
+// NoCloseReader returns an io.Reader just like r that does not implement
+// io.Closer.
 func NoCloseReader(r io.Reader) io.Reader {
   _, ok := r.(io.Closer)
   if ok {

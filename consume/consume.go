@@ -3,8 +3,7 @@
 // license that can be found in the LICENSE file or
 // at http://opensource.org/licenses/BSD-3-Clause.
 
-// Package consume provides useful ways to consume streams. All API in this
-// package is draft API and may change in incompatible ways.
+// Package consume provides useful ways to consume streams.
 package consume
 
 import (
