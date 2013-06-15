@@ -181,7 +181,7 @@ func Slice(s Stream, start int, end int) Stream {
 // stream closes r if r implements io.Closer.
 func ReadRows(r Rows) Stream {
   c, _ := r.(io.Closer)
-  return &rowStream{rows: r, closer: c}
+  return &rowStream{rows: r, maybeCloser: maybeCloser{c: c}}
 }
 
 // ReadLines returns the lines of text in r separated by either "\n" or "\r\n"
@@ -191,7 +191,7 @@ func ReadRows(r Rows) Stream {
 // Calling Close on returned Stream closes r if r implements io.Closer.
 func ReadLines(r io.Reader) Stream {
   c, _ := r.(io.Closer)
-  return &lineStream{bufio: bufio.NewReader(r), closer: c}
+  return &lineStream{bufio: bufio.NewReader(r), maybeCloser: maybeCloser{c: c}}
 }
 
 // Deferred returns a Stream that emits the values from the Stream f returns.
@@ -468,7 +468,7 @@ func (s *sliceStream) Next(ptr interface{}) error {
 
 type rowStream struct {
   rows Rows
-  closer io.Closer
+  maybeCloser
   done bool
 }
 
@@ -484,13 +484,9 @@ func (s *rowStream) Next(ptr interface{}) error {
   return s.rows.Scan(ptrs...)
 }
 
-func (s *rowStream) Close() error {
-  return closeUnder(&s.closer)
-}
-  
 type lineStream struct {
   bufio *bufio.Reader
-  closer io.Closer
+  maybeCloser
   done bool
 }
 
@@ -531,10 +527,6 @@ func (s *lineStream) readRestOfLine(line []byte) (string, error) {
     }
   }
   return string(byteFlatten(lines)), nil
-}
-
-func (s *lineStream) Close() error {
-  return closeUnder(&s.closer)
 }
 
 type deferredStream struct {
@@ -799,6 +791,19 @@ func (s noCloseStream) Close() error {
   return nil
 }
 
+type maybeCloser struct {
+  c io.Closer
+  e error
+}
+
+func (mc *maybeCloser) Close() error {
+  if mc.c != nil {
+    mc.e = mc.c.Close()
+    mc.c = nil
+  }
+  return mc.e
+}
+
 func orList(f Filterer) []Filterer {
   ors, ok := f.(orFilterer)
   if ok {
@@ -880,17 +885,6 @@ func finish(e error) error {
     return Done
   }
   return e
-}
-
-func closeUnder(ptr *io.Closer) error {
-  if *ptr == nil {
-    return nil
-  }
-  result := (*ptr).Close()
-  if result == nil {
-    *ptr = nil
-  }
-  return result
 }
 
 func copyBytes(b []byte) []byte {

@@ -18,7 +18,6 @@ var (
   closeError = errors.New("error closing.")
   filterError = errors.New("filter error.")
   mapError = errors.New("map error.")
-  alreadyClosedError = errors.New("already closed.")
   includeFilterer = errorFilterer{nil}
   skipFilterer = errorFilterer{Skipped}
   errFilterer = errorFilterer{filterError}
@@ -172,7 +171,7 @@ func TestSliceNoEnd(t *testing.T) {
 }
 
 func TestSliceWithEnd(t *testing.T) {
-  s := streamCloseChecker{xrange(5, 13), &simpleCloseChecker{}}
+  s := &streamCloseChecker{xrange(5, 13), &simpleCloseChecker{}}
   stream := Slice(s, 2, 4)
   results, err := toIntArray(stream)
   if output := fmt.Sprintf("%v", results); output != "[7 8]"  {
@@ -183,7 +182,7 @@ func TestSliceWithEnd(t *testing.T) {
 }
 
 func TestSliceWithEnd2(t *testing.T) {
-  s := streamCloseChecker{xrange(5, 13), &simpleCloseChecker{}}
+  s := &streamCloseChecker{xrange(5, 13), &simpleCloseChecker{}}
   stream := Slice(s, 0, 2)
   results, err := toIntArray(stream)
   if output := fmt.Sprintf("%v", results); output != "[5 6]"  {
@@ -194,7 +193,7 @@ func TestSliceWithEnd2(t *testing.T) {
 }
 
 func TestZeroSlice(t *testing.T) {
-  s := streamCloseChecker{xrange(5, 13), &simpleCloseChecker{}}
+  s := &streamCloseChecker{xrange(5, 13), &simpleCloseChecker{}}
   stream := Slice(s, 2, 2)
   results, err := toIntArray(stream)
   if output := fmt.Sprintf("%v", results); output != "[]"  {
@@ -225,7 +224,7 @@ func TestSliceEndTooBig(t *testing.T) {
 }
 
 func TestSliceStartBiggerThanEnd(t *testing.T) {
-  s := streamCloseChecker{xrange(5, 13), &simpleCloseChecker{}}
+  s := &streamCloseChecker{xrange(5, 13), &simpleCloseChecker{}}
   stream := Slice(s, 4, 3)
   results, err := toIntArray(stream)
   if output := fmt.Sprintf("%v", results); output != "[]"  {
@@ -236,7 +235,7 @@ func TestSliceStartBiggerThanEnd(t *testing.T) {
 }
 
 func TestSliceNextPropagateClose(t *testing.T) {
-  s := streamCloseChecker{Count(), &simpleCloseChecker{closeError: closeError}}
+  s := &streamCloseChecker{Count(), &simpleCloseChecker{closeError: closeError}}
   stream := Slice(s, 7, 10)
   if _ ,err := toIntArray(stream); err != closeError {
     t.Errorf("Expected closeError, got %v", err)
@@ -253,9 +252,9 @@ func TestCountFrom(t *testing.T) {
 }
 
 func TestReadRows(t *testing.T) {
-  rows := rowsCloseChecker{
+  rows := &rowsCloseChecker{
       &fakeRows{ids: []int {3, 4}, names: []string{"foo", "bar"}},
-      &simpleCloseChecker{}}
+      &simpleCloseChecker{noDupClose: true}}
   stream := ReadRows(rows)
   results, err := toIntAndStringArray(stream)
   if output := fmt.Sprintf("%v", results); output != "[{3 foo} {4 bar}]"  {
@@ -276,8 +275,8 @@ func TestReadRowsNoImplCloser(t *testing.T) {
 } 
 
 func TestReadRowsEmpty(t *testing.T) {
-  rows := rowsCloseChecker{
-      &fakeRows{}, &simpleCloseChecker{}}
+  rows := &rowsCloseChecker{
+      &fakeRows{}, &simpleCloseChecker{noDupClose: true}}
   stream := ReadRows(rows)
   results, err := toIntAndStringArray(stream)
   if output := fmt.Sprintf("%v", results); output != "[]"  {
@@ -299,7 +298,7 @@ func TestReadRowsError(t *testing.T) {
 }
 
 func TestReadRowsNextPropagateClose(t *testing.T) {
-  rows := rowsCloseChecker{&fakeRows{}, &simpleCloseChecker{closeError: closeError}}
+  rows := &rowsCloseChecker{&fakeRows{}, &simpleCloseChecker{closeError: closeError, noDupClose: true}}
   stream := ReadRows(rows)
   if _, err := toIntAndStringArray(stream); err != closeError {
     t.Errorf("Expected closeError, got %v", err)
@@ -308,7 +307,7 @@ func TestReadRowsNextPropagateClose(t *testing.T) {
 }
 
 func TestReadRowsManualClose(t *testing.T) {
-  rows := rowsCloseChecker{&fakeRows{}, &noDupCloseChecker{}}
+  rows := &rowsCloseChecker{&fakeRows{}, &simpleCloseChecker{noDupClose: true}}
   verifyDupClose(t, ReadRows(rows))
   verifyCloseCalled(t, rows)
 }
@@ -318,9 +317,9 @@ func TestReadRowsManualCloseNoImplCloser(t *testing.T) {
 }
   
 func TestReadLines(t *testing.T) {
-  reader := readerCloseChecker{
+  reader := &readerCloseChecker{
       strings.NewReader("Now is\nthe time\nfor all good men.\n"),
-      &simpleCloseChecker{}}
+      &simpleCloseChecker{noDupClose: true}}
   stream := ReadLines(reader)
   results, err := toStringArray(stream)
   if output := strings.Join(results,","); output != "Now is,the time,for all good men."  {
@@ -342,9 +341,9 @@ func TestReadLinesNoImplCloser(t *testing.T) {
 
 func TestReadLinesLongLine(t *testing.T) {
   str := strings.Repeat("a", 4001) + strings.Repeat("b", 4001) + strings.Repeat("c", 4001) + "\n" + "foo"
-  reader := readerCloseChecker{
+  reader := &readerCloseChecker{
       strings.NewReader(str),
-      &simpleCloseChecker{}}
+      &simpleCloseChecker{noDupClose: true}}
   stream := ReadLines(reader)
   results, err := toStringArray(stream)
   if results[0] != str[0:12003] {
@@ -362,9 +361,9 @@ func TestReadLinesLongLine(t *testing.T) {
 
 func TestReadLinesLongLine2(t *testing.T) {
   str := strings.Repeat("a", 4001) + strings.Repeat("b", 4001) + strings.Repeat("c", 4001)
-  reader := readerCloseChecker{
+  reader := &readerCloseChecker{
       strings.NewReader(str),
-      &simpleCloseChecker{}}
+      &simpleCloseChecker{noDupClose: true}}
   stream := ReadLines(reader)
   results, err := toStringArray(stream)
   if results[0] != str {
@@ -378,7 +377,7 @@ func TestReadLinesLongLine2(t *testing.T) {
 }
 
 func TestReadLinesNextPropagateClose(t *testing.T) {
-  reader := readerCloseChecker{strings.NewReader(""), &simpleCloseChecker{closeError: closeError}}
+  reader := &readerCloseChecker{strings.NewReader(""), &simpleCloseChecker{closeError: closeError, noDupClose: true}}
   stream := ReadLines(reader)
   if _, err := toStringArray(stream); err != closeError {
     t.Errorf("Expected closeError, got %v", err)
@@ -387,7 +386,7 @@ func TestReadLinesNextPropagateClose(t *testing.T) {
 }
 
 func TestReadLinesManualClose(t *testing.T) {
-  reader := readerCloseChecker{strings.NewReader(""), &noDupCloseChecker{}}
+  reader := &readerCloseChecker{strings.NewReader(""), &simpleCloseChecker{noDupClose: true}}
   verifyDupClose(t, ReadLines(reader))
   verifyCloseCalled(t, reader)
 }
@@ -446,24 +445,24 @@ func TestConcatCloseEmpty(t *testing.T) {
 }
 
 func TestConcatCloseNormal(t *testing.T) {
-  x := streamCloseChecker{NilStream(), &simpleCloseChecker{}}
-  y := streamCloseChecker{NilStream(), &simpleCloseChecker{}}
+  x := &streamCloseChecker{NilStream(), &simpleCloseChecker{}}
+  y := &streamCloseChecker{NilStream(), &simpleCloseChecker{}}
   stream := Concat(x, y)
   closeVerifyResult(t, stream, nil)
   verifyCloseCalled(t, x, y)
 }
 
 func TestConcatCloseError1(t *testing.T) {
-  x := streamCloseChecker{NilStream(), &simpleCloseChecker{closeError: closeError}}
-  y := streamCloseChecker{NilStream(), &simpleCloseChecker{}}
+  x := &streamCloseChecker{NilStream(), &simpleCloseChecker{closeError: closeError}}
+  y := &streamCloseChecker{NilStream(), &simpleCloseChecker{}}
   stream := Concat(x, y)
   closeVerifyResult(t, stream, closeError)
   verifyCloseCalled(t, x, y)
 }
 
 func TestConcatCloseError2(t *testing.T) {
-  x := streamCloseChecker{NilStream(), &simpleCloseChecker{}}
-  y := streamCloseChecker{NilStream(), &simpleCloseChecker{closeError: closeError}}
+  x := &streamCloseChecker{NilStream(), &simpleCloseChecker{}}
+  y := &streamCloseChecker{NilStream(), &simpleCloseChecker{closeError: closeError}}
   stream := Concat(x, y)
   closeVerifyResult(t, stream, closeError)
   verifyCloseCalled(t, x, y)
@@ -479,13 +478,13 @@ func TestDeferred(t *testing.T) {
 }
 
 func TestDeferredCloseNotStarted(t *testing.T) {
-  s := streamCloseChecker{NilStream(), &simpleCloseChecker{closeError: closeError}}
+  s := &streamCloseChecker{NilStream(), &simpleCloseChecker{closeError: closeError}}
   stream := Deferred(func() Stream { return s })
   closeVerifyResult(t, stream, nil)
 }
 
 func TestDeferredCloseError(t *testing.T) {
-  s := streamCloseChecker{xrange(2, 5), &simpleCloseChecker{closeError: closeError}}
+  s := &streamCloseChecker{xrange(2, 5), &simpleCloseChecker{closeError: closeError}}
   stream := Deferred(func() Stream { return s })
   stream.Next(new(int))
   closeVerifyResult(t, stream, closeError)
@@ -493,7 +492,7 @@ func TestDeferredCloseError(t *testing.T) {
 }
 
 func TestDeferredClose(t *testing.T) {
-  s := streamCloseChecker{xrange(2, 5), &simpleCloseChecker{}}
+  s := &streamCloseChecker{xrange(2, 5), &simpleCloseChecker{}}
   stream := Deferred(func() Stream { return s })
   stream.Next(new(int))
   closeVerifyResult(t, stream, nil)
@@ -586,9 +585,9 @@ func TestFlattenWithEmptyStreams(t *testing.T) {
 
 func TestFlattenCloseNormal(t *testing.T) {
   first := NewStreamFromValues([]int{1, 2}, nil)
-  second := streamCloseChecker{
+  second := &streamCloseChecker{
       NewStreamFromValues([]int{3, 4}, nil), &simpleCloseChecker{}}
-  s := streamCloseChecker{
+  s := &streamCloseChecker{
       NewStreamFromValues([]Stream{first, second}, nil),
       &simpleCloseChecker{}}
   stream := Flatten(s)
@@ -603,10 +602,10 @@ func TestFlattenCloseNormal(t *testing.T) {
 
 func TestFlattenCloseError1(t *testing.T) {
   first := NewStreamFromValues([]int{1, 2}, nil)
-  second := streamCloseChecker{
+  second := &streamCloseChecker{
       NewStreamFromValues([]int{3, 4}, nil),
       &simpleCloseChecker{closeError: closeError}}
-  s := streamCloseChecker{
+  s := &streamCloseChecker{
       NewStreamFromValues([]Stream{first, second}, nil),
       &simpleCloseChecker{}}
   stream := Flatten(s)
@@ -621,10 +620,10 @@ func TestFlattenCloseError1(t *testing.T) {
 
 func TestFlattenCloseError2(t *testing.T) {
   first := NewStreamFromValues([]int{1, 2}, nil)
-  second := streamCloseChecker{
+  second := &streamCloseChecker{
       NewStreamFromValues([]int{3, 4}, nil),
       &simpleCloseChecker{}}
-  s := streamCloseChecker{
+  s := &streamCloseChecker{
       NewStreamFromValues([]Stream{first, second}, nil),
       &simpleCloseChecker{closeError: closeError}}
   stream := Flatten(s)
@@ -638,7 +637,7 @@ func TestFlattenCloseError2(t *testing.T) {
 }
 
 func TestTakeWhileNone(t *testing.T) {
-  s := streamCloseChecker{xrange(0, 5), &simpleCloseChecker{}}
+  s := &streamCloseChecker{xrange(0, 5), &simpleCloseChecker{}}
   stream := TakeWhile(Any(), s)
   results, err := toIntArray(stream)
   if output := fmt.Sprintf("%v", results); output != "[]" {
@@ -670,7 +669,7 @@ func TestTakeWhileError(t *testing.T) {
 }
 
 func TestTakeWhileSome(t *testing.T) {
-  s := streamCloseChecker{xrange(0, 5), &simpleCloseChecker{}}
+  s := &streamCloseChecker{xrange(0, 5), &simpleCloseChecker{}}
   stream := TakeWhile(notEqual(2), s)
   results, err := toIntArray(stream)
   if output := fmt.Sprintf("%v", results); output != "[0 1]" {
@@ -681,7 +680,7 @@ func TestTakeWhileSome(t *testing.T) {
 }
 
 func TestTakeWhilePropagateClose(t *testing.T) {
-  s := streamCloseChecker{xrange(0, 5), &simpleCloseChecker{closeError: closeError}}
+  s := &streamCloseChecker{xrange(0, 5), &simpleCloseChecker{closeError: closeError}}
   stream := TakeWhile(notEqual(2), s)
   if _, err := toIntArray(stream); err != closeError {
     t.Errorf("Expected closeError, got %v", err)
@@ -997,7 +996,7 @@ func TestFastComposeCompose(t *testing.T) {
 }
 
 func TestNoCloseStream(t *testing.T) {
-  s := streamCloseChecker{Count(), &simpleCloseChecker{}}
+  s := &streamCloseChecker{Count(), &simpleCloseChecker{}}
   stream := Slice(NoCloseStream(s), 0, 3)
   toIntArray(stream)
   if s.closeCalled() {
@@ -1006,7 +1005,7 @@ func TestNoCloseStream(t *testing.T) {
 }
 
 func TestNoCloseRows(t *testing.T) {
-  rows := rowsCloseChecker{
+  rows := &rowsCloseChecker{
       &fakeRows{ids: []int {}, names: []string{}},
       &simpleCloseChecker{}}
   stream := ReadRows(NoCloseRows(rows))
@@ -1017,7 +1016,7 @@ func TestNoCloseRows(t *testing.T) {
 }
 
 func TestNoCloseReader(t *testing.T) {
-  reader := readerCloseChecker{
+  reader := &readerCloseChecker{
       strings.NewReader(""),
       &simpleCloseChecker{}}
   stream := ReadLines(NoCloseReader(reader))
@@ -1133,7 +1132,7 @@ type streamCloseChecker struct {
   closeChecker
 }
 
-func (s streamCloseChecker) Close() error {
+func (s *streamCloseChecker) Close() error {
   checkerResult := s.closeChecker.Close()
   streamResult := s.Stream.Close()
   if checkerResult == nil {
@@ -1155,31 +1154,19 @@ type readerCloseChecker struct {
 type simpleCloseChecker struct {
   closeError error
   closeCount int
+  noDupClose bool
 }
 
 func (sc *simpleCloseChecker) Close() error {
   sc.closeCount++
+  if sc.noDupClose && sc.closeCount > 1 {
+    panic("duplicate close not allowed.")
+  }
   return sc.closeError
 }
 
 func (sc *simpleCloseChecker) closeCalled() bool {
   return sc.closeCount > 0
-}
-
-type noDupCloseChecker struct {
-  closeCount int
-}
-
-func (c *noDupCloseChecker) Close() error {
-  c.closeCount++
-  if c.closeCount == 1 {
-    return nil
-  }
-  return alreadyClosedError
-}
-
-func (c *noDupCloseChecker) closeCalled() bool {
-  return c.closeCount > 0
 }
 
 type errorFilterer struct {

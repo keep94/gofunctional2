@@ -32,7 +32,7 @@ func TestNormal(t *testing.T) {
 }
 
 func TestConsumersEndEarly(t *testing.T) {
-  s := streamCloseChecker{Count(), &simpleCloseChecker{}}
+  s := &streamCloseChecker{Count(), &simpleCloseChecker{}}
   first5 := func(s Stream) Stream {
     return Slice(s, 0, 5)
   }
@@ -67,7 +67,7 @@ func TestConsumersEndEarly(t *testing.T) {
 }
 
 func TestNoConsumers(t *testing.T) {
-  s := streamCloseChecker{CountFrom(7, 1), &simpleCloseChecker{}}
+  s := &streamCloseChecker{CountFrom(7, 1), &simpleCloseChecker{}}
   if output := MultiConsume(s, new(int), nil); output != nil {
     t.Errorf("Expected MultiConsume to return nil, got %v", output)
   }
@@ -75,7 +75,7 @@ func TestNoConsumers(t *testing.T) {
 }
 
 func TestNoNextConsumer(t *testing.T) {
-  s := streamCloseChecker{CountFrom(7, 1), &simpleCloseChecker{}}
+  s := &streamCloseChecker{CountFrom(7, 1), &simpleCloseChecker{}}
   nc := &noNextConsumer{}
   if output := MultiConsume(s, new(int), nil, nc); output != nil {
     t.Errorf("Expected MultiConsume to return nil, got %v", output)
