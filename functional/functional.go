@@ -20,8 +20,8 @@ var (
   nilM = nilMapper{}
   nilPieceL = []compositeMapperPiece{{mapper: nilM}}
   nilS = nilStream{}
-  trueFilterer = andFilterer(nil)
-  falseFilterer = orFilterer(nil)
+  trueF = trueFilterer{}
+  falseF = falseFilterer{}
 )
 
 // Stream is a sequence emitted values.
@@ -220,6 +220,9 @@ func Concat(s ...Stream) Stream {
   if len(s) == 0 {
     return nilS
   }
+  if len(s) == 1 {
+    return s[0]
+  }
   return &concatStream{s: s}
 }
 
@@ -279,7 +282,10 @@ func DropWhile(f Filterer, s Stream) Stream {
 // Skipped. Otherwise it returns nil or the first error not equal to Skipped.
 func Any(fs ...Filterer) Filterer {
   if len(fs) == 0 {
-    return falseFilterer
+    return falseF
+  }
+  if len(fs) == 1 {
+    return fs[0]
   }
   ors := make([][]Filterer, len(fs))
   for i := range fs {
@@ -292,7 +298,10 @@ func Any(fs ...Filterer) Filterer {
 // fs return nil. Otherwise it returns the first error encountered.
 func All(fs ...Filterer) Filterer {
   if len(fs) == 0 {
-    return trueFilterer
+    return trueF
+  }
+  if len(fs) == 1 {
+    return fs[0]
   }
   ands := make([][]Filterer, len(fs))
   for i := range fs {
@@ -401,6 +410,20 @@ func (s *mapStream) Next(ptr interface{}) error {
     }
   }
   return err
+}
+
+type trueFilterer struct {
+}
+
+func (t trueFilterer) Filter(ptr interface{}) error {
+  return nil
+}
+
+type falseFilterer struct {
+}
+
+func (f falseFilterer) Filter(ptr interface{}) error {
+  return Skipped
 }
 
 type nilStream struct {
@@ -805,17 +828,21 @@ func (mc *maybeCloser) Close() error {
 }
 
 func orList(f Filterer) []Filterer {
-  ors, ok := f.(orFilterer)
-  if ok {
-    return ors
+  switch i := f.(type) {
+    case orFilterer:
+      return i
+    case falseFilterer:
+      return nil
   }
   return []Filterer{f}
 }
 
 func andList(f Filterer) []Filterer {
-  ands, ok := f.(andFilterer)
-  if ok {
-    return ands
+  switch i := f.(type) {
+    case andFilterer:
+      return i
+    case trueFilterer:
+      return nil
   }
   return []Filterer{f}
 }

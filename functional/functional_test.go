@@ -430,6 +430,13 @@ func TestConcatEmpty(t *testing.T) {
   }
 }
 
+func TestConcatSingle(t *testing.T) {
+  s := xrange(7, 9)
+  if s != Concat(s) {
+    t.Error("Concat should return its single argument.")
+  }
+}
+
 func TestConcatAllEmptyStreams(t *testing.T) {
   stream := Concat(NilStream(), NilStream())
   results, err := toIntArray(stream)
@@ -789,7 +796,7 @@ func TestAllWithMapper(t *testing.T) {
 func TestAllAnyComposition(t *testing.T) {
   a := All(
     Any(equal(1), equal(2), equal(3)),
-    Any(equal(4)))
+    Any(equal(4), equal(5)))
   if x := len(a.(andFilterer)); x != 2 {
     t.Errorf("Expected 2, got %v", x)
   }
@@ -798,7 +805,7 @@ func TestAllAnyComposition(t *testing.T) {
 func TestAnyAllComposition(t *testing.T) {
   a := Any(
     All(equal(1), equal(2), equal(3)),
-    All(equal(4)))
+    All(equal(4), equal(5)))
   if x := len(a.(orFilterer)); x != 2 {
     t.Errorf("Expected 2, got %v", x)
   }
@@ -810,11 +817,23 @@ func TestEmptyAny(t *testing.T) {
     t.Errorf("Expected Skipped, got %v", output)
   }
 }
-  
+
 func TestEmptyAll(t *testing.T) {
   a := All()
   if output := a.Filter(ptrInt(0)); output != nil {
     t.Errorf("Expected nil, got %v", output)
+  }
+}
+
+func TestSingleAny(t *testing.T) {
+  if trueF != Any(trueF) {
+    t.Error("Any should return its single argument.")
+  }
+}
+
+func TestSingleAll(t *testing.T) {
+  if trueF != All(trueF) {
+    t.Error("All should return its single argument.")
   }
 }
 
