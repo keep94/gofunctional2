@@ -240,6 +240,7 @@ func TestSliceNextPropagateClose(t *testing.T) {
   if _ ,err := toIntArray(stream); err != closeError {
     t.Errorf("Expected closeError, got %v", err)
   }
+  closeVerifyResult(t, s, closeError)
 }
   
 func TestCountFrom(t *testing.T) {
@@ -692,6 +693,7 @@ func TestTakeWhilePropagateClose(t *testing.T) {
   if _, err := toIntArray(stream); err != closeError {
     t.Errorf("Expected closeError, got %v", err)
   }
+  closeVerifyResult(t, s, closeError)
 }
 
 func TestDropWhileNone(t *testing.T) {
