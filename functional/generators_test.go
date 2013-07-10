@@ -76,6 +76,21 @@ func TestEmptyGenerator(t *testing.T) {
   verifyDone(t, stream, new(int), err)
 }
 
+func TestCloseMayFailClose(t *testing.T) {
+  stream := NewGeneratorCloseMayFail(closeFailEmitterFunc)
+  closeVerifyResult(t, stream, closeError)
+  closeVerifyResult(t, stream, closeError)
+}
+
+func TestCloseMayFailNext(t *testing.T) {
+  stream := NewGeneratorCloseMayFail(closeFailEmitterFunc)
+  var x int
+  if err := stream.Next(&x); err != closeError {
+    t.Errorf("Expected closeError, got %v", err)
+  }
+  closeVerifyResult(t, stream, closeError)
+}
+
 func TestEmitAllClosed(t *testing.T) {
   s := Count()
   e := fakeEmitter{nil}
@@ -90,6 +105,10 @@ func TestEmitAllSuccess(t *testing.T) {
   if output := EmitAll(s, e); output != nil {
     t.Errorf("Expected nil, got %v", output)
   }
+}
+
+func closeFailEmitterFunc(e Emitter) error {
+  return closeError
 }
 
 type fakeEmitter struct {

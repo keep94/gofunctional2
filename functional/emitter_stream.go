@@ -29,8 +29,9 @@ func (s *emitterStream) startEmitter() {
   s.ptr = <-s.ptrCh
 }
 
-func (s *emitterStream) endEmitter() {
+func (s *emitterStream) endEmitter(e error) {
   s.errCh <- Done
+  s.errCh <- e
 }
 
 func (s *emitterStream) startStream() {

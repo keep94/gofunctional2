@@ -28,11 +28,29 @@ type Emitter interface {
 // f gets nil when calling EmitPtr on e it should return immediately as this
 // means the Stream was closed.
 func NewGenerator(f func(e Emitter)) Stream {
-  result := &regularGenerator{emitterStream{ptrCh: make(chan interface{}), errCh: make(chan error)}}
+  return NewGeneratorCloseMayFail(func(e Emitter) error {
+    f(e)
+    return nil
+  })
+}
+
+// NewGeneratorCloseMayFail creates a Stream that emits the values from
+// emitting function f. When f is through emitting values, it should perform
+// any necessary cleanup and return any error from the cleanup.
+// If f gets nil when calling EmitPtr on e it should immediately perform
+// cleanup returning any error from the cleanup as this means the Stream
+// was closed. The Close() method on returned Stream reports any non-nil error
+// f returns to the caller.
+// This function is draft API and may change in incompatible ways.
+func NewGeneratorCloseMayFail(f func(e Emitter) error) Stream {
+  result := &regularGenerator{emitterStream: emitterStream{ptrCh: make(chan interface{}), errCh: make(chan error)}}
   go func() {
-    defer result.endEmitter()
+    var err error
+    defer func() {
+      result.endEmitter(err)
+    }()
     result.startEmitter()
-    f(result)
+    err = f(result)
   }()
   return result
 }
@@ -53,6 +71,7 @@ func EmitAll(s Stream, e Emitter) error {
 
 type regularGenerator struct {
   emitterStream
+  closeResult error
 }
 
 func (s *regularGenerator) Return(err error) {
@@ -68,18 +87,23 @@ func (s *regularGenerator) Next(ptr interface{}) error {
   }
   result := s.emitterStream.Next(ptr)
   if result == Done {
+    s.closeResult = <-s.errCh
     s.close()
+    return finish(s.closeResult)
   }
   return result
 }
 
 func (s *regularGenerator) Close() error {
+  if s.isClosed() {
+    return s.closeResult
+  }
   result := s.Next(nil)
+  if !s.isClosed() {
+    return errors.New("Emitting function did not return on Close.")
+  }
   if result == Done {
     return nil
-  }
-  if result == nil {
-    return errors.New("Emitting function did not return on Close.")
   }
   return result
 }
