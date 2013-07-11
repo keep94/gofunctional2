@@ -74,6 +74,14 @@ func TestNoConsumers(t *testing.T) {
   verifyCloseCalled(t, s)
 }
 
+func TestCloseErrorReturned(t *testing.T) {
+  s := &streamCloseChecker{Count(), &simpleCloseChecker{closeError: closeError}}
+  if output := MultiConsume(s, new(int), nil); output != closeError {
+    t.Errorf("Expected MultiConsume to return closeError, got %v", output)
+  }
+  verifyCloseCalled(t, s)
+}
+
 func TestNoNextConsumer(t *testing.T) {
   s := &streamCloseChecker{CountFrom(7, 1), &simpleCloseChecker{}}
   nc := &noNextConsumer{}

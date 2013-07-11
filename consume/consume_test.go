@@ -209,6 +209,14 @@ func TestFirstOnlyError(t *testing.T) {
   verifyClosed(t, stream)
 }
 
+func TestFirstOnlyCloseError(t *testing.T) {
+  stream := closeErrorStream{Stream: functional.Count()}
+  var value int
+  if output := FirstOnly(stream, emptyError, &value); output != closeError {
+    t.Errorf("Expected closeError, got %v", output)
+  }
+}
+
 func TestCompose(t *testing.T) {
   consumer1 := errorReportingConsumerForTesting{}
   consumer2 := errorReportingConsumerForTesting{}

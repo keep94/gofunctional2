@@ -98,11 +98,10 @@ func (b *Buffer) Error() error {
 
 // Consume fetches the entries. s is a Stream of T.
 func (b *Buffer) Consume(s functional.Stream) {
+  defer s.Close()
   b.consume(s)
   if b.err == functional.Done {
     b.err = nil
-  } else {
-    s.Close()
   }
 }
 
@@ -192,6 +191,7 @@ func (pb *PageBuffer) End() bool {
 
 // Consume fetches the entries. s is a Stream of T.
 func (pb *PageBuffer) Consume(s functional.Stream) {
+  defer s.Close()
   pb.page_no = 0
   pb.is_end = false
   for {
@@ -210,7 +210,6 @@ func (pb *PageBuffer) Consume(s functional.Stream) {
       if buffer.err == nil {
         pb.is_end = s.Next(pb.addrFunc(pb.buffers[(pb.page_no + 1) %2].buffer.Index(0))) == functional.Done
       }
-      s.Close()
       return
     }
     pb.page_no++
@@ -220,16 +219,19 @@ func (pb *PageBuffer) Consume(s functional.Stream) {
 // FirstOnly reads the first value from stream storing it in ptr.
 // FirstOnly closes the stream.
 // FirstOnly returns emptyError if no values were on stream.
-func FirstOnly(stream functional.Stream, emptyError error, ptr interface{}) error {
-  err := stream.Next(ptr)
+func FirstOnly(stream functional.Stream, emptyError error, ptr interface{}) (err error) {
+  defer func() {
+    closeError := stream.Close()
+    if err == nil {
+      err = closeError
+    }
+  }()
+  err = stream.Next(ptr)
   if err == functional.Done {
-    return emptyError
+    err = emptyError
+    return
   }
-  if err != nil {
-    stream.Close()
-    return err
-  }
-  return stream.Close()
+  return
 }
 
 type compositeConsumer struct {

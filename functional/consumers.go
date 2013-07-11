@@ -27,7 +27,10 @@ func ModifyConsumerStream(c Consumer, f func(s Stream) Stream) Consumer {
 // of T used to copy T values to the Streams sent to each Consumer in
 // consumers. Passing null for copier means use simple assignment.
 // Finally MultiConsume closes s and returns the result.
-func MultiConsume(s Stream, ptr interface{}, copier Copier, consumers ...Consumer) error {
+func MultiConsume(s Stream, ptr interface{}, copier Copier, consumers ...Consumer) (closeError error) {
+  defer func() {
+    closeError = s.Close()
+  }()
   if copier == nil {
     copier = assignCopier
   }
@@ -50,7 +53,7 @@ func MultiConsume(s Stream, ptr interface{}, copier Copier, consumers ...Consume
       }
     }
   }
-  return s.Close()
+  return
 }
 
 type modifiedConsumerStream struct {
