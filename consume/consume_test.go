@@ -16,6 +16,8 @@ var (
   otherError = errors.New("stream_util: Other.")
   consumerError = errors.New("stream_util: consumer error.")
   closeError = errors.New("stream_util: close error.")
+  intPtrSlice []*int
+  intSlice []int
 )
 
 func TestPtrBuffer(t *testing.T) {
@@ -55,6 +57,69 @@ func TestBufferError(t *testing.T) {
   b.Consume(stream)
   if err := b.Error(); err != otherError {
     t.Errorf("Expected error otherError, got %v", err)
+  }
+}
+
+func TestPtrGrowingBuffer(t *testing.T) {
+  stream := &closeChecker{Stream: functional.Slice(functional.Count(), 0, 6)}
+  b := NewPtrGrowingBuffer(intPtrSlice, 5, nil)
+  var c ErrorReportingConsumer = b
+  c.Consume(stream)
+  verifyClosed(t, stream)
+  verifyPtrFetched(t, b, 0, 6)
+}
+
+func TestPtrGrowingBuffer2(t *testing.T) {
+  stream := &closeChecker{Stream: functional.Slice(functional.Count(), 0, 6)}
+  b := NewPtrGrowingBuffer(
+      intPtrSlice, 1, func() interface{} { return new(int) })
+  b.Consume(stream)
+  verifyClosed(t, stream)
+  verifyPtrFetched(t, b, 0, 6)
+  if actual := cap(b.Values().([]*int)); actual != 8 {
+    t.Errorf("Expected capacit of 8, got %v", actual)
+  }
+}
+
+func TestGrowingBufferSameSize(t *testing.T) {
+  stream := &closeChecker{Stream: functional.Slice(functional.Count(), 0, 5)}
+  b := NewGrowingBuffer(intSlice, 5)
+  b.Consume(stream)
+  verifyClosed(t, stream)
+  verifyFetched(t, b, 0, 5)
+}
+
+func TestGrowingBufferSmall(t *testing.T) {
+  stream := &closeChecker{Stream: functional.Slice(functional.Count(), 0, 6)}
+  b := NewGrowingBuffer(intSlice, 5)
+  b.Consume(stream)
+  verifyClosed(t, stream)
+  verifyFetched(t, b, 0, 6)
+  if actual := cap(b.Values().([]int)); actual != 10 {
+    t.Errorf("Expected capacit of 10, got %v", actual)
+  }
+}
+
+func TestGrowingBufferBig(t *testing.T) {
+  stream := &closeChecker{Stream: functional.Slice(functional.Count(), 0, 4)}
+  b := NewGrowingBuffer(intSlice, 5)
+  b.Consume(stream)
+  verifyClosed(t, stream)
+  verifyFetched(t, b, 0, 4)
+  if actual := cap(b.Values().([]int)); actual != 5 {
+    t.Errorf("Expected capacity of 5, got %v", actual)
+  }
+}
+
+func TestGrowingBufferError(t *testing.T) {
+  stream := &closeChecker{Stream: errorStream{otherError}}
+  b := NewGrowingBuffer(intSlice, 5)
+  b.Consume(stream)
+  if err := b.Error(); err != otherError {
+    t.Errorf("Expected error otherError, got %v", err)
+  }
+  if actual := len(b.Values().([]int)); actual != 0 {
+    t.Errorf("Expected length of 0, got %v", actual)
   }
 }
 
@@ -260,7 +325,12 @@ func TestCompose2(t *testing.T) {
   }
 }
 
-func verifyFetched(t *testing.T, b *Buffer, start int, end int) {
+type abstractBuffer interface {
+  Error() error
+  Values() interface{}
+}
+
+func verifyFetched(t *testing.T, b abstractBuffer, start int, end int) {
   if err := b.Error(); err != nil {
     t.Errorf("Got error fetching values, %v", err)
     return
@@ -268,7 +338,7 @@ func verifyFetched(t *testing.T, b *Buffer, start int, end int) {
   verifyValues(t, b.Values().([]int), start, end)
 }
 
-func verifyPtrFetched(t *testing.T, b *Buffer, start int, end int) {
+func verifyPtrFetched(t *testing.T, b abstractBuffer, start int, end int) {
   if err := b.Error(); err != nil {
     t.Errorf("Got error fetching values, %v", err)
     return

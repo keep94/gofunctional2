@@ -96,7 +96,7 @@ func (b *Buffer) Error() error {
   return b.err
 }
 
-// Consume fetches the entries. s is a Stream of T.
+// Consume fetches the values. s is a Stream of T.
 func (b *Buffer) Consume(s functional.Stream) {
   defer s.Close()
   b.consume(s)
@@ -106,14 +106,129 @@ func (b *Buffer) Consume(s functional.Stream) {
 }
 
 func (b *Buffer) consume(s functional.Stream) {
-  l := b.buffer.Len()
   b.err = nil
-  for b.idx = 0; b.idx < l; b.idx++ {
-    b.err = s.Next(b.addrFunc(b.buffer.Index(b.idx)))
-    if b.err != nil {
-      break
+  b.idx, b.err = readStreamIntoSlice(s, b.buffer, b.addrFunc)
+}
+
+// GrowingBuffer reads values from a Stream of T until the stream is exausted.
+// GrowingBuffer grows as needed to hold all the read values.
+// GrowingBuffer is provisional, draft API and may change in future releases.
+type GrowingBuffer struct {
+  buffer reflect.Value
+  sliceType reflect.Type
+  idx int
+  err error
+  addrFunc func(reflect.Value) interface{}
+  creater func() reflect.Value
+}
+
+// NewGrowingBuffer creates a new GrowingBuffer that stores the read values
+// as a []T. aSlice is a []T. Although the aSlice value is never read,
+// GrowingBuffer needs it to create new slices via reflection when growing
+// the buffer. initialLength is the initial size of the slice used to store
+// the read values and must be greater than 0.
+func NewGrowingBuffer(aSlice interface{}, initialLength int) *GrowingBuffer {
+  if initialLength <= 0 {
+    panic("initialLength must be greater than 0.")
+  }
+  result := &GrowingBuffer{
+      sliceType: reflect.TypeOf(aSlice),
+      addrFunc: forValue}
+  result.buffer = result.ensureCapacity(reflect.Value{}, initialLength)
+  return result
+}
+
+// NewPtrGrowingBuffer creates a new GrowingBuffer that stores the read values
+// as a []*T. aSlice is a []*T. Although the aSlice value is never read,
+// GrowingBuffer needs it to create new slices via reflection when growing
+// the buffer. initialLength is the initial size of the slice used to store
+// the read values and must be greater than 0. creater allocates memory to
+// store the T values. nil means new(T).
+func NewPtrGrowingBuffer(
+    aSlice interface{},
+    initialLength int,
+    creater functional.Creater) *GrowingBuffer {
+  if initialLength <= 0 {
+    panic("initialLength must be greater than 0.")
+  }
+  sliceType := reflect.TypeOf(aSlice)
+  ttype := sliceType.Elem().Elem()
+  var c func() reflect.Value
+  if creater == nil {
+    c = func() reflect.Value {
+      return reflect.New(ttype)
+    }
+  } else {
+    c = func() reflect.Value {
+      return reflect.ValueOf(creater());
     }
   }
+  result := &GrowingBuffer{
+      sliceType: sliceType,
+      addrFunc: forPtr,
+      creater: c}
+  result.buffer = result.ensureCapacity(reflect.Value{}, initialLength)
+  return result
+}
+
+// Consume fetches the values. s is a Stream of T.
+func (g *GrowingBuffer) Consume(s functional.Stream) {
+  defer s.Close()
+  g.err = nil
+  g.idx = 0
+  for g.err == nil {
+    bufLen := g.buffer.Len()
+    if g.idx == bufLen {
+      g.buffer = g.ensureCapacity(g.buffer, 2 * bufLen)
+      bufLen = g.buffer.Len()
+    }
+    var numRead int
+    numRead, g.err = readStreamIntoSlice(s, g.buffer.Slice(g.idx, bufLen), g.addrFunc)
+    g.idx += numRead
+  }
+  if g.err == functional.Done {
+    g.err = nil
+  }
+}
+  
+// Error returns any error from last call to Consume.
+func (g *GrowingBuffer) Error() error {
+  return g.err
+}
+
+// Values returns the values gathered from the last Consume call.
+// Returned value is a []T or []*T depending on whether
+// NewGrowingBuffer or NewPtrGrowingBuffer was used to create this instance.
+// Returned value remains valid until the next call to Consume.
+func (g *GrowingBuffer) Values() interface{} {
+  return g.buffer.Slice(0, g.idx).Interface()
+}
+
+func (g *GrowingBuffer) ensureCapacity(
+    aSlice reflect.Value, capacity int) reflect.Value {
+  var oldLen int
+  if aSlice.IsValid() {
+    oldLen = aSlice.Len()
+  } else {
+    oldLen = 0
+  }
+  if capacity > oldLen {
+    result := g.makeSlice(capacity)
+    for i := 0; i < oldLen; i++ {
+      result.Index(i).Set(aSlice.Index(i))
+    }
+    if g.creater != nil {
+      for i := oldLen; i < capacity; i++ {
+        result.Index(i).Set(g.creater())
+      }
+    }
+    return result
+  }
+  return aSlice;
+}
+
+func (g *GrowingBuffer) makeSlice(length int) reflect.Value {
+  return reflect.MakeSlice(g.sliceType, length, length)
 }
 
 // PageBuffer reads a page of T values from a stream of T.
@@ -189,7 +304,7 @@ func (pb *PageBuffer) End() bool {
   return pb.is_end
 }
 
-// Consume fetches the entries. s is a Stream of T.
+// Consume fetches the values. s is a Stream of T.
 func (pb *PageBuffer) Consume(s functional.Stream) {
   defer s.Close()
   pb.page_no = 0
@@ -273,4 +388,18 @@ func forValue(value reflect.Value) interface{} {
 
 func forPtr(ptrValue reflect.Value) interface{} {
   return ptrValue.Interface()
+}
+
+func readStreamIntoSlice(
+     s functional.Stream,
+     aSlice reflect.Value,
+     addrFunc func(reflect.Value) interface{}) (numRead int, err error) {
+  l := aSlice.Len()
+  for numRead = 0; numRead < l; numRead++ {
+    err = s.Next(addrFunc(aSlice.Index(numRead)))
+    if err != nil {
+      break
+    }
+  }
+  return
 }
