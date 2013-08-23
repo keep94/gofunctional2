@@ -1,6 +1,6 @@
 # gofunctional2
 
-This API is now deprecated in favor of gofunctional3. 
+This API is now deprecated in favor of [gofunctional3](https://github.com/keep94/gofunctional3).
 
 Functional programming in go. The main data type, Stream, is similar to
 a python iterator or generator. The methods found in here are similar to
